@@ -36,6 +36,30 @@ export interface ResumeSessionResult {
   messages: ChatMessageSnapshot[];
 }
 
+export interface PromptTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface PromptImagePart {
+  type: 'image_url';
+  imageUrl: { url: string; id?: string };
+}
+
+export type PromptInputPart = PromptTextPart | PromptImagePart;
+
+export interface PreviewFileResult {
+  path: string;
+  name: string;
+  content: string;
+  truncated: boolean;
+}
+
+export interface PreviewDiffResult {
+  workDir: string;
+  content: string;
+}
+
 export interface KimiAPI {
   getDefaultWorkDir(): Promise<string>;
   selectWorkDir(): Promise<RuntimeSettings | null>;
@@ -44,7 +68,7 @@ export interface KimiAPI {
   updateRuntimeSettings(input: { model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<RuntimeSettings>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
   resumeSession(id: string): Promise<ResumeSessionResult>;
-  prompt(input: string): Promise<void>;
+  prompt(input: string | PromptInputPart[]): Promise<void>;
   cancel(): Promise<void>;
   listSessions(workDir: string): Promise<SessionSummary[]>;
   setModel(model: string): Promise<void>;
@@ -55,6 +79,8 @@ export interface KimiAPI {
   respondApproval(payload: { requestId: string; response: unknown }): void;
   onQuestionRequest(callback: (payload: { requestId: string; request: unknown }) => void): () => void;
   respondQuestion(payload: { requestId: string; response: unknown }): void;
+  selectPreviewFile(): Promise<PreviewFileResult | null>;
+  getGitDiff(): Promise<PreviewDiffResult>;
 }
 
 interface RequestPayload {
@@ -135,6 +161,12 @@ const api: KimiAPI = {
   },
   respondQuestion(response) {
     ipcRenderer.send(IPC.AGENT_QUESTION_RESPOND, response);
+  },
+  selectPreviewFile() {
+    return ipcRenderer.invoke(IPC.PREVIEW_SELECT_FILE);
+  },
+  getGitDiff() {
+    return ipcRenderer.invoke(IPC.PREVIEW_GIT_DIFF);
   },
 };
 

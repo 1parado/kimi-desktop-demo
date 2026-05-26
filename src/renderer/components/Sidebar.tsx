@@ -3,7 +3,12 @@ import { useChatStore } from '../store/chat';
 import { useSettingsStore } from '../store/settings';
 import type { SessionSummary } from '../../preload/index';
 
-export function Sidebar() {
+interface SidebarProps {
+  width: number;
+  onToggleSidebar: () => void;
+}
+
+export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
   const sessionId = useChatStore((s) => s.sessionId);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const switchSession = useChatStore((s) => s.switchSession);
@@ -31,10 +36,15 @@ export function Sidebar() {
   const projects = groupSessionsByWorkDir(sessions);
 
   return (
-    <aside className="sidebar-panel flex w-[266px] shrink-0 flex-col">
+    <aside className="sidebar-panel flex shrink-0 flex-col" style={{ width }}>
       <div className="flex h-[74px] items-center gap-3 px-4">
-        <button className="icon-button muted" aria-label="Toggle sidebar">
-          <span className="mini-window" />
+        <button
+          className="icon-button muted layout-toggle"
+          aria-label="隐藏侧栏"
+          title="隐藏侧栏"
+          onClick={onToggleSidebar}
+        >
+          <span className="layout-toggle-icon left" />
         </button>
         <div className="brand-mark grid h-9 w-9 place-items-center rounded-xl text-sm font-semibold">
           K

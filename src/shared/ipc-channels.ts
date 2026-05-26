@@ -17,4 +17,6 @@ export const IPC = {
   AGENT_APPROVAL_RESPOND: 'agent:approval:respond',
   AGENT_QUESTION: 'agent:question',
   AGENT_QUESTION_RESPOND: 'agent:question:respond',
+  PREVIEW_SELECT_FILE: 'preview:select-file',
+  PREVIEW_GIT_DIFF: 'preview:git-diff',
 } as const;

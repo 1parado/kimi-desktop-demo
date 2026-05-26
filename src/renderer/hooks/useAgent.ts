@@ -2,7 +2,13 @@ import { useEffect, useCallback } from 'react';
 import { useChatStore } from '../store/chat';
 import { useSettingsStore } from '../store/settings';
 import type { ApprovalPrompt } from '../store/chat';
-import type { KimiAPI } from '../../preload/index';
+import type { KimiAPI, PromptInputPart } from '../../preload/index';
+
+export interface SendMessageInput {
+  text: string;
+  prompt: string | PromptInputPart[];
+  displayText?: string;
+}
 
 declare global {
   interface Window {
@@ -101,22 +107,23 @@ export function useAgent() {
     return result;
   }, [selectedModel, thinking, permission, setSessionId, loadSettings]);
 
-  const sendMessage = useCallback(async (input: string) => {
+  const sendMessage = useCallback(async (input: SendMessageInput) => {
     const api = window.kimiAPI;
+    const displayText = input.displayText ?? input.text;
     if (!api) {
-      addUserMessage(input);
+      addUserMessage(displayText);
       addErrorMessage('Kimi desktop bridge is unavailable. Start the app with Electron to chat with Kimi Code.');
       return;
     }
 
-    addUserMessage(input);
+    addUserMessage(displayText);
     setLoading(true);
     try {
       if (!sessionId) {
         const sessionWorkDir = workDir || await api.getDefaultWorkDir();
         await createSession(sessionWorkDir);
       }
-      await api.prompt(input);
+      await api.prompt(input.prompt);
     } catch (error) {
       addErrorMessage(error instanceof Error ? error.message : String(error));
     }
