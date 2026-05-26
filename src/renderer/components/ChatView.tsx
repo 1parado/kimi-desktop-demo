@@ -10,6 +10,8 @@ export function ChatView() {
   const [previewOpen, setPreviewOpen] = useState(true);
   const { sendMessage, cancel, isLoading } = useAgent();
   const handleSend = (input: SendMessageInput) => void sendMessage(input);
+  const minimizeWindow = () => void window.kimiAPI?.minimizeWindow();
+  const toggleMaximizeWindow = () => void window.kimiAPI?.toggleMaximizeWindow();
 
   return (
     <div className="desktop-stage flex h-full min-w-0 flex-col">
@@ -22,14 +24,30 @@ export function ChatView() {
           <button className="tab-add" aria-label="New tab">+</button>
         </div>
         <div className="chrome-actions">
-          <button className="chrome-button" aria-label="Full screen" />
-          <button className="chrome-button minus" aria-label="Minimize" />
+          <button
+            className="chrome-button maximize"
+            aria-label="最大化窗口"
+            title="最大化窗口"
+            onClick={toggleMaximizeWindow}
+          >
+            <span />
+          </button>
+          <button
+            className="chrome-button minimize"
+            aria-label="最小化窗口"
+            title="最小化窗口"
+            onClick={minimizeWindow}
+          >
+            <span />
+          </button>
           <button
             className={`chrome-button split ${previewOpen ? 'active' : ''}`}
             aria-label={previewOpen ? '隐藏预览' : '打开预览'}
             title={previewOpen ? '隐藏预览' : '打开预览'}
             onClick={() => setPreviewOpen((open) => !open)}
-          />
+          >
+            <span />
+          </button>
         </div>
       </header>
 

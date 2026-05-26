@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { PreviewDiffResult, PreviewFileResult } from '../../preload/index';
 
@@ -15,6 +15,10 @@ export function PreviewPanel({ onClose }: PreviewPanelProps) {
   const [urlInput, setUrlInput] = useState('https://');
   const [previewUrl, setPreviewUrl] = useState('');
   const [isLoading, setLoading] = useState(false);
+
+  useEffect(() => {
+    void loadDiff();
+  }, []);
 
   async function loadDiff() {
     setMode('diff');
@@ -52,19 +56,23 @@ export function PreviewPanel({ onClose }: PreviewPanelProps) {
           <div className="preview-title">文档 / Diff / 浏览器</div>
         </div>
         <button className="preview-close" type="button" onClick={onClose} aria-label="隐藏预览">
-          Hide
+          <span className="preview-close-mark" />
+          <span>Hide</span>
         </button>
       </div>
 
       <div className="preview-tabs">
         <button className={mode === 'diff' ? 'active' : ''} type="button" onClick={() => void loadDiff()}>
-          Git diff
+          <span className="preview-tab-icon diff" />
+          <span>Git diff</span>
         </button>
         <button className={mode === 'file' ? 'active' : ''} type="button" onClick={() => void openFile()}>
-          文件
+          <span className="preview-tab-icon file" />
+          <span>文件</span>
         </button>
         <button className={mode === 'browser' ? 'active' : ''} type="button" onClick={() => setMode('browser')}>
-          浏览器
+          <span className="preview-tab-icon browser" />
+          <span>浏览器</span>
         </button>
       </div>
 
@@ -110,7 +118,10 @@ export function PreviewPanel({ onClose }: PreviewPanelProps) {
                 }}
                 placeholder="https://example.com"
               />
-              <button type="button" onClick={openBrowser}>打开</button>
+              <button type="button" onClick={openBrowser}>
+                <span className="browser-open-icon" />
+                <span>打开</span>
+              </button>
             </div>
             {previewUrl ? (
               <iframe title="网页预览" src={previewUrl} className="browser-frame" sandbox="allow-scripts allow-forms allow-same-origin" />

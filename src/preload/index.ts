@@ -81,6 +81,8 @@ export interface KimiAPI {
   respondQuestion(payload: { requestId: string; response: unknown }): void;
   selectPreviewFile(): Promise<PreviewFileResult | null>;
   getGitDiff(): Promise<PreviewDiffResult>;
+  minimizeWindow(): Promise<void>;
+  toggleMaximizeWindow(): Promise<void>;
 }
 
 interface RequestPayload {
@@ -167,6 +169,12 @@ const api: KimiAPI = {
   },
   getGitDiff() {
     return ipcRenderer.invoke(IPC.PREVIEW_GIT_DIFF);
+  },
+  minimizeWindow() {
+    return ipcRenderer.invoke(IPC.WINDOW_MINIMIZE);
+  },
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke(IPC.WINDOW_TOGGLE_MAXIMIZE);
   },
 };
 

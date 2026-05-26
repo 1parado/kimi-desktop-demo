@@ -97,7 +97,6 @@ textarea:focus-visible {
 }
 
 .mini-window,
-.chrome-button,
 .folder-glyph,
 .settings-gear {
   display: inline-block;
@@ -358,36 +357,82 @@ textarea:focus-visible {
 }
 
 .chrome-button {
-  width: 17px;
-  height: 17px;
-  border: 1.5px solid var(--muted);
-  border-radius: 6px;
-  background: transparent;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(93, 102, 95, 0.32);
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 248, 244, 0.72));
+  color: var(--ink-muted);
+  box-shadow:
+    0 8px 18px rgba(36, 45, 38, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: 160ms ease;
+}
+
+.chrome-button:hover {
+  border-color: rgba(117, 201, 67, 0.38);
+  color: var(--ink);
+  background: #fff;
+  transform: translateY(-1px);
 }
 
 .chrome-button.active {
-  border-color: var(--kimi-green-strong);
-  background: rgba(117, 201, 67, 0.14);
+  border-color: rgba(72, 165, 29, 0.54);
+  color: var(--kimi-green-strong);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(117, 201, 67, 0.2), transparent 70%),
+    #fbfff8;
 }
 
-.chrome-button.minus::before {
+.chrome-button span {
+  position: relative;
+  display: block;
+  width: 11px;
+  height: 11px;
+}
+
+.chrome-button.maximize span {
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.chrome-button.maximize span::after {
   position: absolute;
-  top: 7px;
-  left: 4px;
-  width: 7px;
-  height: 1.5px;
+  inset: 2px;
+  border-top: 1px solid currentColor;
   content: "";
-  background: var(--muted);
+  opacity: 0.55;
 }
 
-.chrome-button.split::before {
+.chrome-button.minimize span::before {
+  position: absolute;
+  top: 5px;
+  left: 1px;
+  width: 9px;
+  height: 1.5px;
+  border-radius: 999px;
+  content: "";
+  background: currentColor;
+}
+
+.chrome-button.split span {
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.chrome-button.split span::before {
   position: absolute;
   top: 2px;
   bottom: 2px;
-  left: 7px;
-  width: 1px;
+  left: 4px;
+  width: 1.5px;
+  border-radius: 999px;
   content: "";
-  background: var(--muted);
+  background: currentColor;
+  opacity: 0.7;
 }
 
 .conversation-plane {
@@ -725,7 +770,11 @@ textarea:focus-visible {
 .preview-close,
 .preview-frame-header button,
 .browser-bar button {
+  display: inline-flex;
   height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.82);
@@ -733,6 +782,7 @@ textarea:focus-visible {
   padding: 0 10px;
   font-size: 12px;
   font-weight: 700;
+  transition: 160ms ease;
 }
 
 .preview-close:hover,
@@ -751,13 +801,18 @@ textarea:focus-visible {
 }
 
 .preview-tabs button {
+  display: inline-flex;
   height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px solid transparent;
   border-radius: 11px;
   background: rgba(255, 255, 255, 0.62);
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+  transition: 160ms ease;
 }
 
 .preview-tabs button.active,
@@ -765,6 +820,119 @@ textarea:focus-visible {
   border-color: rgba(117, 201, 67, 0.24);
   background: rgba(237, 247, 232, 0.94);
   color: var(--ink);
+}
+
+.preview-tab-icon,
+.preview-close-mark,
+.browser-open-icon {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.preview-tab-icon {
+  width: 15px;
+  height: 15px;
+  color: currentColor;
+}
+
+.preview-tab-icon.diff {
+  border-radius: 5px;
+  background: linear-gradient(135deg, rgba(117, 201, 67, 0.95), rgba(72, 165, 29, 0.95));
+}
+
+.preview-tab-icon.diff::before,
+.preview-tab-icon.diff::after {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 1.5px;
+  border-radius: 999px;
+  content: "";
+  background: #fff;
+}
+
+.preview-tab-icon.diff::before {
+  top: 5px;
+}
+
+.preview-tab-icon.diff::after {
+  bottom: 5px;
+}
+
+.preview-tab-icon.file {
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.preview-tab-icon.file::before {
+  position: absolute;
+  top: -1.5px;
+  right: -1.5px;
+  width: 6px;
+  height: 6px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  border-radius: 0 3px 0 3px;
+  content: "";
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.preview-tab-icon.browser {
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+}
+
+.preview-tab-icon.browser::before {
+  position: absolute;
+  inset: 3px 1px;
+  border-top: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  content: "";
+}
+
+.preview-close-mark {
+  width: 12px;
+  height: 12px;
+}
+
+.preview-close-mark::before,
+.preview-close-mark::after {
+  position: absolute;
+  top: 5px;
+  left: 1px;
+  width: 10px;
+  height: 1.5px;
+  border-radius: 999px;
+  content: "";
+  background: currentColor;
+}
+
+.preview-close-mark::before {
+  transform: rotate(45deg);
+}
+
+.preview-close-mark::after {
+  transform: rotate(-45deg);
+}
+
+.browser-open-icon {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+}
+
+.browser-open-icon::after {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 5px;
+  height: 1.5px;
+  border-radius: 999px;
+  content: "";
+  background: currentColor;
+  transform: rotate(45deg);
 }
 
 .preview-body {

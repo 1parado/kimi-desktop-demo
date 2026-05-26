@@ -19,4 +19,6 @@ export const IPC = {
   AGENT_QUESTION_RESPOND: 'agent:question:respond',
   PREVIEW_SELECT_FILE: 'preview:select-file',
   PREVIEW_GIT_DIFF: 'preview:git-diff',
+  WINDOW_MINIMIZE: 'window:minimize',
+  WINDOW_TOGGLE_MAXIMIZE: 'window:toggle-maximize',
 } as const;
