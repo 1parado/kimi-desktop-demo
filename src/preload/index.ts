@@ -12,6 +12,23 @@ export interface RuntimeSettings {
   permission: PermissionMode;
 }
 
+export interface ConfigModelSettings {
+  configPath: string;
+  modelAlias: string;
+  model: string;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  hasApiKey: boolean;
+  clearApiKey?: boolean;
+  maxContextSize: number;
+}
+
+export interface SaveConfigModelResult {
+  settings: ConfigModelSettings;
+  runtime: RuntimeSettings;
+}
+
 export interface SessionSummary {
   id: string;
   title?: string;
@@ -66,6 +83,9 @@ export interface KimiAPI {
   setWorkDir(workDir: string): Promise<RuntimeSettings>;
   getRuntimeSettings(): Promise<RuntimeSettings>;
   updateRuntimeSettings(input: { model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<RuntimeSettings>;
+  getConfigModelSettings(): Promise<ConfigModelSettings>;
+  saveConfigModelSettings(input: ConfigModelSettings): Promise<SaveConfigModelResult>;
+  openConfigFile(): Promise<string>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
   resumeSession(id: string): Promise<ResumeSessionResult>;
   prompt(input: string | PromptInputPart[]): Promise<void>;
@@ -112,6 +132,15 @@ const api: KimiAPI = {
   },
   updateRuntimeSettings(input) {
     return ipcRenderer.invoke(IPC.CONFIG_UPDATE_RUNTIME, input);
+  },
+  getConfigModelSettings() {
+    return ipcRenderer.invoke(IPC.CONFIG_MODEL_GET);
+  },
+  saveConfigModelSettings(input) {
+    return ipcRenderer.invoke(IPC.CONFIG_MODEL_SAVE, input);
+  },
+  openConfigFile() {
+    return ipcRenderer.invoke(IPC.CONFIG_OPEN_FILE);
   },
   createSession(options) {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, options);

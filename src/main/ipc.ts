@@ -2,13 +2,15 @@ import { execFile } from 'node:child_process';
 import { open, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { promisify } from 'node:util';
-import { dialog, ipcMain, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
+import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
 
 const execFileAsync = promisify(execFile);
 const MAX_PREVIEW_FILE_BYTES = 1024 * 1024;
+const DEFAULT_CONFIG_MODEL = 'kimi-k2.6';
+const DEFAULT_MODEL_CONTEXT_SIZE = 262144;
 
 let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
@@ -32,6 +34,18 @@ interface RuntimeSettings {
   selectedModel?: string;
   thinking: ThinkingLevel;
   permission: PermissionMode;
+}
+
+interface ConfigModelSettings {
+  configPath: string;
+  modelAlias: string;
+  model: string;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  hasApiKey: boolean;
+  clearApiKey?: boolean;
+  maxContextSize: number;
 }
 
 interface ChatMessageSnapshot {
@@ -219,6 +233,83 @@ async function getRuntimeSettings(): Promise<RuntimeSettings> {
   };
 }
 
+async function getConfigModelSettings(): Promise<ConfigModelSettings> {
+  const h = getHarness();
+  await h.ensureConfigFile();
+  const config = await h.getConfig({ reload: true });
+  const modelAlias = config.models?.[DEFAULT_CONFIG_MODEL] !== undefined
+    ? DEFAULT_CONFIG_MODEL
+    : config.defaultModel ?? DEFAULT_CONFIG_MODEL;
+  const modelConfig = config.models?.[modelAlias];
+  const provider = modelConfig?.provider ?? modelAlias;
+  const providerConfig = config.providers[provider];
+
+  return {
+    configPath: h.configPath,
+    modelAlias,
+    model: modelConfig?.model ?? modelAlias,
+    provider,
+    baseUrl: providerConfig?.baseUrl ?? '',
+    apiKey: '',
+    hasApiKey: Boolean(providerConfig?.apiKey),
+    maxContextSize: modelConfig?.maxContextSize ?? DEFAULT_MODEL_CONTEXT_SIZE,
+  };
+}
+
+async function saveConfigModelSettings(input: Partial<ConfigModelSettings>): Promise<ConfigModelSettings> {
+  const h = getHarness();
+  await h.ensureConfigFile();
+  const modelAlias = normalizeRequiredText(input.modelAlias, 'Model alias');
+  const provider = normalizeRequiredText(input.provider, 'Provider');
+  const model = normalizeRequiredText(input.model, 'Model');
+  const maxContextSize = normalizePositiveInteger(input.maxContextSize, 'Max context size');
+  const baseUrl = input.baseUrl?.trim() ?? '';
+  const existing = await h.getConfig({ reload: true });
+  const previousApiKey = existing.providers[provider]?.apiKey ?? '';
+  const apiKey = input.clearApiKey === true
+    ? ''
+    : typeof input.apiKey === 'string' && input.apiKey.length > 0
+      ? input.apiKey
+      : previousApiKey;
+
+  await h.setConfig({
+    defaultModel: modelAlias,
+    providers: {
+      [provider]: {
+        type: 'kimi',
+        baseUrl,
+        apiKey,
+        defaultModel: model,
+      },
+    },
+    models: {
+      [modelAlias]: {
+        provider,
+        model,
+        maxContextSize,
+      },
+    },
+  });
+
+  await activeSession?.setModel(modelAlias);
+  return getConfigModelSettings();
+}
+
+function normalizeRequiredText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} is required.`);
+  }
+  return value.trim();
+}
+
+function normalizePositiveInteger(value: unknown, label: string): number {
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return numberValue;
+}
+
 export function registerIpcHandlers(win: BrowserWindow): void {
   targetWindow = win;
   if (handlersRegistered) return;
@@ -276,6 +367,26 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       return getRuntimeSettings();
     },
   );
+
+  ipcMain.handle(IPC.CONFIG_MODEL_GET, async () => getConfigModelSettings());
+
+  ipcMain.handle(IPC.CONFIG_MODEL_SAVE, async (_event, input: Partial<ConfigModelSettings>) => {
+    const settings = await saveConfigModelSettings(input);
+    return {
+      settings,
+      runtime: await getRuntimeSettings(),
+    };
+  });
+
+  ipcMain.handle(IPC.CONFIG_OPEN_FILE, async () => {
+    const h = getHarness();
+    await h.ensureConfigFile();
+    const error = await shell.openPath(h.configPath);
+    if (error) {
+      throw new Error(error);
+    }
+    return h.configPath;
+  });
 
   ipcMain.handle(IPC.SESSION_CREATE, async (_event, options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }) => {
     const h = getHarness();

@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useChatStore } from '../store/chat';
 import { useSettingsStore } from '../store/settings';
+import { ConfigSettingsDialog } from './ConfigSettingsDialog';
 import type { SessionSummary } from '../../preload/index';
 
 interface SidebarProps {
@@ -9,6 +10,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const sessionId = useChatStore((s) => s.sessionId);
   const addErrorMessage = useChatStore((s) => s.addErrorMessage);
   const startNewSession = useChatStore((s) => s.startNewSession);
@@ -68,6 +70,7 @@ export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
   const projects = groupSessionsByWorkDir(sessions);
 
   return (
+    <>
     <aside className="sidebar-panel flex shrink-0 flex-col" style={{ width }}>
       <div className="flex h-[74px] items-center gap-3 px-4">
         <button
@@ -183,12 +186,14 @@ export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
       </div>
 
       <div className="px-4 py-4">
-        <button className="settings-row">
+        <button className="settings-row" onClick={() => setSettingsOpen(true)}>
           <span className="settings-gear" />
           <span>设置</span>
         </button>
       </div>
     </aside>
+    <ConfigSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </>
   );
 }
 

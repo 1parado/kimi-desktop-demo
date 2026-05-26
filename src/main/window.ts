@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,10 @@ export function createWindow(): BrowserWindow {
       webviewTag: true,
     },
   });
+
+  Menu.setApplicationMenu(null);
+  win.setAutoHideMenuBar(true);
+  win.setMenuBarVisibility(false);
 
   if (isDev) {
     win.loadURL('http://localhost:5173');
