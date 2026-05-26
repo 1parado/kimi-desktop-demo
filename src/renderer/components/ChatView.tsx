@@ -1,16 +1,13 @@
+import { useState } from 'react';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 import { ApprovalDialog } from './ApprovalDialog';
+import { PreviewPanel } from './PreviewPanel';
 import { useAgent } from '../hooks/useAgent';
 import type { SendMessageInput } from '../hooks/useAgent';
 
-const tools = [
-  { name: '文件', description: '浏览项目文件', glyph: 'F' },
-  { name: '浏览器', description: '打开网站', glyph: 'B' },
-  { name: '终端', description: '启动交互式 shell', glyph: 'T' },
-];
-
 export function ChatView() {
+  const [previewOpen, setPreviewOpen] = useState(true);
   const { sendMessage, cancel, isLoading } = useAgent();
   const handleSend = (input: SendMessageInput) => void sendMessage(input);
 
@@ -27,7 +24,12 @@ export function ChatView() {
         <div className="chrome-actions">
           <button className="chrome-button" aria-label="Full screen" />
           <button className="chrome-button minus" aria-label="Minimize" />
-          <button className="chrome-button split" aria-label="Split view" />
+          <button
+            className={`chrome-button split ${previewOpen ? 'active' : ''}`}
+            aria-label={previewOpen ? '隐藏预览' : '打开预览'}
+            title={previewOpen ? '隐藏预览' : '打开预览'}
+            onClick={() => setPreviewOpen((open) => !open)}
+          />
         </div>
       </header>
 
@@ -37,17 +39,7 @@ export function ChatView() {
           <InputArea onSend={handleSend} onCancel={cancel} isLoading={isLoading} />
         </section>
 
-        <aside className="tool-dock hidden w-[360px] shrink-0 items-center justify-center px-6 xl:flex">
-          <div className="grid w-full grid-cols-3 gap-3">
-            {tools.map((tool) => (
-              <button key={tool.name} className="tool-tile">
-                <span className="tool-icon">{tool.glyph}</span>
-                <span className="mt-3 text-sm font-semibold text-[var(--ink)]">{tool.name}</span>
-                <span className="mt-1 text-xs text-[var(--muted)]">{tool.description}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
+        {previewOpen && <PreviewPanel onClose={() => setPreviewOpen(false)} />}
       </div>
       <ApprovalDialog />
     </div>

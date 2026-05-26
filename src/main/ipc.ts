@@ -1,7 +1,14 @@
+import { execFile } from 'node:child_process';
+import { open, stat } from 'node:fs/promises';
+import { basename } from 'node:path';
+import { promisify } from 'node:util';
 import { dialog, ipcMain, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
+
+const execFileAsync = promisify(execFile);
+const MAX_PREVIEW_FILE_BYTES = 1024 * 1024;
 
 let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
@@ -33,6 +40,18 @@ interface ChatMessageSnapshot {
   toolName?: string;
   toolCallId?: string;
   toolStatus?: 'completed' | 'failed';
+}
+
+interface PreviewFileResult {
+  path: string;
+  name: string;
+  content: string;
+  truncated: boolean;
+}
+
+interface PreviewDiffResult {
+  workDir: string;
+  content: string;
 }
 
 interface ReplayContextMessage {
@@ -278,6 +297,57 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     const h = getHarness();
     return h.listSessions({ workDir });
   });
+
+  ipcMain.handle(IPC.PREVIEW_SELECT_FILE, async () => selectPreviewFile());
+  ipcMain.handle(IPC.PREVIEW_GIT_DIFF, async () => getGitDiffPreview());
+}
+
+async function selectPreviewFile(): Promise<PreviewFileResult | null> {
+  const options: OpenDialogOptions = {
+    title: '选择要预览的文件',
+    defaultPath: selectedWorkDir,
+    properties: ['openFile'],
+  };
+  const result = targetWindow === null
+    ? await dialog.showOpenDialog(options)
+    : await dialog.showOpenDialog(targetWindow, options);
+  const filePath = result.filePaths[0];
+  if (result.canceled || filePath === undefined) return null;
+
+  const fileStat = await stat(filePath);
+  const bytesToRead = Math.min(fileStat.size, MAX_PREVIEW_FILE_BYTES);
+  const file = await open(filePath, 'r');
+  let content = '';
+  try {
+    const buffer = Buffer.alloc(bytesToRead);
+    const result = await file.read(buffer, 0, bytesToRead, 0);
+    content = buffer.subarray(0, result.bytesRead).toString('utf-8');
+  } finally {
+    await file.close();
+  }
+  return {
+    path: filePath,
+    name: basename(filePath),
+    content,
+    truncated: fileStat.size > MAX_PREVIEW_FILE_BYTES,
+  };
+}
+
+async function getGitDiffPreview(): Promise<PreviewDiffResult> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', selectedWorkDir, 'diff', '--no-ext-diff', '--'], {
+      maxBuffer: 1024 * 1024 * 8,
+    });
+    return {
+      workDir: selectedWorkDir,
+      content: stdout.trim().length > 0 ? stdout : '当前工作区没有未提交的 diff。',
+    };
+  } catch (error) {
+    return {
+      workDir: selectedWorkDir,
+      content: `无法读取 Git diff：${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 function replayMessages(session: Session): ChatMessageSnapshot[] {

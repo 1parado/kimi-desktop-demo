@@ -48,6 +48,18 @@ export interface PromptImagePart {
 
 export type PromptInputPart = PromptTextPart | PromptImagePart;
 
+export interface PreviewFileResult {
+  path: string;
+  name: string;
+  content: string;
+  truncated: boolean;
+}
+
+export interface PreviewDiffResult {
+  workDir: string;
+  content: string;
+}
+
 export interface KimiAPI {
   getDefaultWorkDir(): Promise<string>;
   selectWorkDir(): Promise<RuntimeSettings | null>;
@@ -67,6 +79,8 @@ export interface KimiAPI {
   respondApproval(payload: { requestId: string; response: unknown }): void;
   onQuestionRequest(callback: (payload: { requestId: string; request: unknown }) => void): () => void;
   respondQuestion(payload: { requestId: string; response: unknown }): void;
+  selectPreviewFile(): Promise<PreviewFileResult | null>;
+  getGitDiff(): Promise<PreviewDiffResult>;
 }
 
 interface RequestPayload {
@@ -147,6 +161,12 @@ const api: KimiAPI = {
   },
   respondQuestion(response) {
     ipcRenderer.send(IPC.AGENT_QUESTION_RESPOND, response);
+  },
+  selectPreviewFile() {
+    return ipcRenderer.invoke(IPC.PREVIEW_SELECT_FILE);
+  },
+  getGitDiff() {
+    return ipcRenderer.invoke(IPC.PREVIEW_GIT_DIFF);
   },
 };
 
