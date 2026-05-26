@@ -5,10 +5,10 @@ import type { PreviewDiffResult, PreviewFileResult } from '../../preload/index';
 type PreviewMode = 'diff' | 'file' | 'browser';
 
 interface PreviewPanelProps {
-  onClose: () => void;
+  width: number;
 }
 
-export function PreviewPanel({ onClose }: PreviewPanelProps) {
+export function PreviewPanel({ width }: PreviewPanelProps) {
   const [mode, setMode] = useState<PreviewMode>('diff');
   const [filePreview, setFilePreview] = useState<PreviewFileResult | null>(null);
   const [diffPreview, setDiffPreview] = useState<PreviewDiffResult | null>(null);
@@ -49,16 +49,12 @@ export function PreviewPanel({ onClose }: PreviewPanelProps) {
   }
 
   return (
-    <aside className="preview-panel">
+    <aside className="preview-panel" style={{ width }}>
       <div className="preview-header">
         <div>
           <div className="preview-eyebrow">Preview</div>
           <div className="preview-title">文档 / Diff / 浏览器</div>
         </div>
-        <button className="preview-close" type="button" onClick={onClose} aria-label="隐藏预览">
-          <span className="preview-close-mark" />
-          <span>Hide</span>
-        </button>
       </div>
 
       <div className="preview-tabs">

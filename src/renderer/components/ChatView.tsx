@@ -1,17 +1,17 @@
-import { useState } from 'react';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 import { ApprovalDialog } from './ApprovalDialog';
-import { PreviewPanel } from './PreviewPanel';
 import { useAgent } from '../hooks/useAgent';
 import type { SendMessageInput } from '../hooks/useAgent';
 
-export function ChatView() {
-  const [previewOpen, setPreviewOpen] = useState(true);
+interface ChatViewProps {
+  previewOpen: boolean;
+  onTogglePreview: () => void;
+}
+
+export function ChatView({ previewOpen, onTogglePreview }: ChatViewProps) {
   const { sendMessage, cancel, isLoading } = useAgent();
   const handleSend = (input: SendMessageInput) => void sendMessage(input);
-  const minimizeWindow = () => void window.kimiAPI?.minimizeWindow();
-  const toggleMaximizeWindow = () => void window.kimiAPI?.toggleMaximizeWindow();
 
   return (
     <div className="desktop-stage flex h-full min-w-0 flex-col">
@@ -25,28 +25,12 @@ export function ChatView() {
         </div>
         <div className="chrome-actions">
           <button
-            className="chrome-button maximize"
-            aria-label="最大化窗口"
-            title="最大化窗口"
-            onClick={toggleMaximizeWindow}
-          >
-            <span />
-          </button>
-          <button
-            className="chrome-button minimize"
-            aria-label="最小化窗口"
-            title="最小化窗口"
-            onClick={minimizeWindow}
-          >
-            <span />
-          </button>
-          <button
-            className={`chrome-button split ${previewOpen ? 'active' : ''}`}
+            className={`icon-button muted layout-toggle ${previewOpen ? 'active' : ''}`}
             aria-label={previewOpen ? '隐藏预览' : '打开预览'}
             title={previewOpen ? '隐藏预览' : '打开预览'}
-            onClick={() => setPreviewOpen((open) => !open)}
+            onClick={onTogglePreview}
           >
-            <span />
+            <span className="layout-toggle-icon right" />
           </button>
         </div>
       </header>
@@ -56,8 +40,6 @@ export function ChatView() {
           <MessageList isLoading={isLoading} />
           <InputArea onSend={handleSend} onCancel={cancel} isLoading={isLoading} />
         </section>
-
-        {previewOpen && <PreviewPanel onClose={() => setPreviewOpen(false)} />}
       </div>
       <ApprovalDialog />
     </div>

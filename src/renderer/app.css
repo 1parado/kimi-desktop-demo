@@ -96,6 +96,117 @@ textarea:focus-visible {
   background: transparent;
 }
 
+.layout-toggle {
+  position: relative;
+}
+
+.layout-toggle.active {
+  color: var(--kimi-green-strong);
+  background: rgba(117, 201, 67, 0.12);
+}
+
+.layout-toggle-icon {
+  display: inline-block;
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid currentColor;
+  border-radius: 5px;
+}
+
+.layout-toggle-icon::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 1.5px;
+  border-radius: 999px;
+  content: "";
+  background: currentColor;
+  opacity: 0.58;
+}
+
+.layout-toggle-icon.left::before {
+  left: 4px;
+}
+
+.layout-toggle-icon.right::before {
+  right: 4px;
+}
+
+.sidebar-reopen {
+  display: grid;
+  width: 34px;
+  height: 100%;
+  flex: 0 0 auto;
+  place-items: start center;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(247, 250, 244, 0.86)),
+    var(--sidebar);
+  color: var(--muted);
+  padding-top: 40px;
+  transition: 160ms ease;
+}
+
+.sidebar-reopen:hover {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 0% 15%, rgba(117, 201, 67, 0.16), transparent 8rem),
+    #fff;
+}
+
+.resize-handle {
+  position: relative;
+  z-index: 8;
+  width: 8px;
+  flex: 0 0 8px;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.resize-handle::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  content: "";
+  background: var(--line);
+  transition: 140ms ease;
+}
+
+.resize-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 4px;
+  height: 46px;
+  border-radius: 999px;
+  content: "";
+  background: rgba(117, 201, 67, 0);
+  transform: translateY(-50%);
+  transition: 140ms ease;
+}
+
+.resize-handle:hover::before,
+.resize-handle:focus-visible::before,
+.is-resizing-layout .resize-handle::before {
+  background: rgba(72, 165, 29, 0.46);
+}
+
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after,
+.is-resizing-layout .resize-handle::after {
+  background: rgba(117, 201, 67, 0.28);
+}
+
+.is-resizing-layout {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .mini-window,
 .folder-glyph,
 .settings-gear {

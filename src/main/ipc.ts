@@ -300,17 +300,6 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
   ipcMain.handle(IPC.PREVIEW_SELECT_FILE, async () => selectPreviewFile());
   ipcMain.handle(IPC.PREVIEW_GIT_DIFF, async () => getGitDiffPreview());
-  ipcMain.handle(IPC.WINDOW_MINIMIZE, () => {
-    targetWindow?.minimize();
-  });
-  ipcMain.handle(IPC.WINDOW_TOGGLE_MAXIMIZE, () => {
-    if (!targetWindow) return;
-    if (targetWindow.isMaximized()) {
-      targetWindow.unmaximize();
-      return;
-    }
-    targetWindow.maximize();
-  });
 }
 
 async function selectPreviewFile(): Promise<PreviewFileResult | null> {
