@@ -9,6 +9,17 @@ let targetWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
 let requestCounter = 0;
 
+type PermissionMode = 'manual' | 'yolo' | 'auto';
+type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+interface RuntimeSettings {
+  workDir: string;
+  models: string[];
+  selectedModel?: string;
+  thinking: ThinkingLevel;
+  permission: PermissionMode;
+}
+
 function getHarness(): KimiHarness {
   if (!harness) {
     harness = new KimiHarness({});
@@ -50,6 +61,52 @@ function waitForRendererResponse<TResponse>(
   });
 }
 
+function normalizePermission(value: unknown): PermissionMode {
+  return value === 'manual' || value === 'yolo' || value === 'auto' ? value : 'manual';
+}
+
+function normalizeThinking(value: unknown): ThinkingLevel {
+  return value === 'off' ||
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh' ||
+    value === 'max'
+    ? value
+    : 'high';
+}
+
+async function getRuntimeSettings(): Promise<RuntimeSettings> {
+  const h = getHarness();
+  await h.ensureConfigFile();
+  const config = await h.getConfig({ reload: true });
+  const models = new Set<string>();
+
+  if (config.defaultModel) {
+    models.add(config.defaultModel);
+  }
+  for (const name of Object.keys(config.models ?? {})) {
+    models.add(name);
+  }
+  for (const provider of Object.values(config.providers)) {
+    if (provider.defaultModel) {
+      models.add(provider.defaultModel);
+    }
+  }
+
+  const thinking = config.thinking?.mode === 'off'
+    ? 'off'
+    : normalizeThinking(config.thinking?.effort ?? (config.defaultThinking === false ? 'off' : 'high'));
+
+  return {
+    workDir: process.cwd(),
+    models: Array.from(models).sort(),
+    selectedModel: config.defaultModel,
+    thinking,
+    permission: normalizePermission(config.defaultPermissionMode),
+  };
+}
+
 export function registerIpcHandlers(win: BrowserWindow): void {
   targetWindow = win;
   if (handlersRegistered) return;
@@ -57,7 +114,34 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
   ipcMain.handle(IPC.SYSTEM_DEFAULT_WORKDIR, async () => process.cwd());
 
-  ipcMain.handle(IPC.SESSION_CREATE, async (_event, options: { workDir?: string; model?: string }) => {
+  ipcMain.handle(IPC.CONFIG_GET, async () => getRuntimeSettings());
+
+  ipcMain.handle(
+    IPC.CONFIG_UPDATE_RUNTIME,
+    async (_event, input: { model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }) => {
+      const h = getHarness();
+      const patch: Record<string, unknown> = {};
+      const model = input.model?.trim();
+      if (model) {
+        patch.defaultModel = model;
+        await activeSession?.setModel(model);
+      }
+      if (input.thinking !== undefined) {
+        patch.thinking = input.thinking === 'off' ? { mode: 'off' } : { mode: 'on', effort: input.thinking };
+        await activeSession?.setThinking(input.thinking);
+      }
+      if (input.permission !== undefined) {
+        patch.defaultPermissionMode = input.permission;
+        await activeSession?.setPermission(input.permission);
+      }
+      if (Object.keys(patch).length > 0) {
+        await h.setConfig(patch);
+      }
+      return getRuntimeSettings();
+    },
+  );
+
+  ipcMain.handle(IPC.SESSION_CREATE, async (_event, options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }) => {
     const h = getHarness();
     await h.ensureConfigFile();
     const config = await h.getConfig();
@@ -69,7 +153,8 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     const session = await h.createSession({
       workDir: options.workDir?.trim() || process.cwd(),
       model,
-      permission: 'manual',
+      thinking: options.thinking,
+      permission: options.permission ?? normalizePermission(config.defaultPermissionMode),
     });
 
     activeSession = session;
@@ -108,6 +193,21 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   ipcMain.handle(IPC.SESSION_CANCEL, async () => {
     if (!activeSession) return;
     await activeSession.cancel();
+  });
+
+  ipcMain.handle(IPC.SESSION_SET_MODEL, async (_event, model: string) => {
+    if (!activeSession) return;
+    await activeSession.setModel(model);
+  });
+
+  ipcMain.handle(IPC.SESSION_SET_THINKING, async (_event, thinking: string) => {
+    if (!activeSession) return;
+    await activeSession.setThinking(thinking);
+  });
+
+  ipcMain.handle(IPC.SESSION_SET_PERMISSION, async (_event, permission: PermissionMode) => {
+    if (!activeSession) return;
+    await activeSession.setPermission(permission);
   });
 
   ipcMain.handle(IPC.SESSION_LIST, async (_event, workDir: string) => {

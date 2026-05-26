@@ -1,20 +1,25 @@
+import { useEffect } from 'react';
 import { useChatStore } from '../store/chat';
-
-const projects = [
-  { name: '七牛简历', items: ['按图片顺序生成Word文档', '你好啊', '打招呼'] },
-  { name: '本草节气展板', items: [] },
-  { name: 'UI设计', items: [] },
-  { name: '毕业论文', items: [] },
-  { name: '42API', items: [] },
-];
+import { useSettingsStore } from '../store/settings';
+import type { SessionSummary } from '../../preload/index';
 
 export function Sidebar() {
   const sessionId = useChatStore((s) => s.sessionId);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const { sessions, workDir, loadSettings } = useSettingsStore();
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   function handleNewChat() {
     clearMessages();
   }
+
+  const recentSessions = [...sessions]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 2);
+  const projects = groupSessionsByWorkDir(sessions);
 
   return (
     <aside className="sidebar-panel flex w-[266px] shrink-0 flex-col">
@@ -51,36 +56,53 @@ export function Sidebar() {
       <div className="mt-5 px-4">
         <div className="mb-3 flex items-center justify-between text-[12px] text-[var(--muted)]">
           <span>置顶</span>
-          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] text-[var(--muted)]">2 周</span>
+          {recentSessions[0] && (
+            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] text-[var(--muted)]">
+              {formatRelativeTime(recentSessions[0].updatedAt)}
+            </span>
+          )}
         </div>
         <div className="space-y-2">
-          <button className="thread-row strong">实习总结</button>
-          <button className="thread-row">我的论文题目：基于杜邦分析</button>
+          {recentSessions.length > 0 ? (
+            recentSessions.map((session) => (
+              <button key={session.id} className="thread-row strong" title={session.id}>
+                {sessionTitle(session)}
+              </button>
+            ))
+          ) : (
+            <div className="px-2 text-[12px] text-[var(--muted-soft)]">暂无会话</div>
+          )}
         </div>
       </div>
 
       <div className="sidebar-scroll mt-6 flex-1 overflow-y-auto px-4 pb-4">
         <div className="mb-3 text-[12px] text-[var(--muted)]">项目</div>
         <div className="space-y-4">
-          {projects.map((project) => (
-            <section key={project.name}>
-              <div className="project-title">
-                <span className="folder-glyph" />
-                <span className="truncate">{project.name}</span>
-              </div>
-              {project.items.length > 0 ? (
+          {projects.length > 0 ? (
+            projects.map((project) => (
+              <section key={project.workDir}>
+                <div className="project-title" title={project.workDir}>
+                  <span className="folder-glyph" />
+                  <span className="truncate">{projectName(project.workDir)}</span>
+                </div>
                 <div className="mt-2 space-y-1 pl-5">
-                  {project.items.map((item) => (
-                    <button key={item} className="thread-row subtle">
-                      {item}
+                  {project.sessions.slice(0, 5).map((session) => (
+                    <button key={session.id} className="thread-row subtle" title={session.id}>
+                      {sessionTitle(session)}
                     </button>
                   ))}
                 </div>
-              ) : (
-                <div className="mt-2 pl-5 text-[12px] text-[var(--muted-soft)]">暂无对话</div>
-              )}
+              </section>
+            ))
+          ) : (
+            <section>
+              <div className="project-title" title={workDir}>
+                <span className="folder-glyph" />
+                <span className="truncate">{projectName(workDir) || '当前工作区'}</span>
+              </div>
+              <div className="mt-2 pl-5 text-[12px] text-[var(--muted-soft)]">暂无对话</div>
             </section>
-          ))}
+          )}
         </div>
 
         {sessionId ? (
@@ -105,4 +127,36 @@ export function Sidebar() {
       </div>
     </aside>
   );
+}
+
+function groupSessionsByWorkDir(sessions: SessionSummary[]): Array<{ workDir: string; sessions: SessionSummary[] }> {
+  const groups = new Map<string, SessionSummary[]>();
+  for (const session of sessions) {
+    const group = groups.get(session.workDir) ?? [];
+    group.push(session);
+    groups.set(session.workDir, group);
+  }
+  return Array.from(groups, ([projectWorkDir, projectSessions]) => ({
+    workDir: projectWorkDir,
+    sessions: projectSessions.sort((a, b) => b.updatedAt - a.updatedAt),
+  }));
+}
+
+function sessionTitle(session: SessionSummary): string {
+  return session.title || session.lastPrompt || session.id;
+}
+
+function projectName(path: string): string {
+  if (!path) return '';
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (diff < hour) return `${Math.max(1, Math.round(diff / minute))} 分`;
+  if (diff < day) return `${Math.round(diff / hour)} 小时`;
+  return `${Math.round(diff / day)} 天`;
 }

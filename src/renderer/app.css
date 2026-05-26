@@ -428,7 +428,7 @@ textarea:focus-visible {
 }
 
 .model-badge,
-.model-select {
+.control-select {
   height: 28px;
   border: 0;
   border-radius: 8px;
@@ -438,7 +438,27 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.control-select {
+  max-width: 184px;
+  appearance: none;
+  cursor: pointer;
+  outline: 0;
+}
+
+.permission-select {
+  max-width: 120px;
+  background: transparent;
+  padding: 0;
+  color: var(--kimi-orange);
+  font-weight: 700;
+}
+
 .model-select {
+  min-width: 94px;
+}
+
+.thinking-select {
+  width: 64px;
   background: transparent;
   color: var(--ink);
 }

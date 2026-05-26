@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useChatStore } from '../store/chat';
+import { useSettingsStore } from '../store/settings';
 import type { ApprovalPrompt } from '../store/chat';
 import type { KimiAPI } from '../../preload/index';
 
@@ -25,6 +26,11 @@ export function useAgent() {
     setSessionId,
     setLoading,
   } = useChatStore();
+  const { workDir, selectedModel, thinking, permission, loadSettings } = useSettingsStore();
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   useEffect(() => {
     if (!window.kimiAPI) return;
@@ -78,16 +84,22 @@ export function useAgent() {
     };
   }, []);
 
-  const createSession = useCallback(async (workDir: string) => {
+  const createSession = useCallback(async (sessionWorkDir: string) => {
     const api = window.kimiAPI;
     if (!api) {
       throw new Error('Kimi desktop bridge is unavailable');
     }
 
-    const result = await api.createSession({ workDir });
+    const result = await api.createSession({
+      workDir: sessionWorkDir,
+      model: selectedModel,
+      thinking,
+      permission,
+    });
     setSessionId(result.id);
+    void loadSettings();
     return result;
-  }, [setSessionId]);
+  }, [selectedModel, thinking, permission, setSessionId, loadSettings]);
 
   const sendMessage = useCallback(async (input: string) => {
     const api = window.kimiAPI;
@@ -101,14 +113,14 @@ export function useAgent() {
     setLoading(true);
     try {
       if (!sessionId) {
-        const workDir = await api.getDefaultWorkDir();
-        await createSession(workDir);
+        const sessionWorkDir = workDir || await api.getDefaultWorkDir();
+        await createSession(sessionWorkDir);
       }
       await api.prompt(input);
     } catch (error) {
       addErrorMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [sessionId, addUserMessage, addErrorMessage, setLoading, createSession]);
+  }, [sessionId, workDir, addUserMessage, addErrorMessage, setLoading, createSession]);
 
   const cancel = useCallback(async () => {
     await window.kimiAPI?.cancel();
