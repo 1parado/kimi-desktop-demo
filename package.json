@@ -1,0 +1,36 @@
+{
+  "name": "kimi-desktop",
+  "version": "0.1.0",
+  "description": "Kimi Desktop — AI coding assistant",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.mjs",
+  "scripts": {
+    "dev": "concurrently -n main,renderer,electron \"tsdown --watch\" \"vite dev\" \"wait-on http://localhost:5173 dist/main/index.mjs dist/preload/index.cjs && electron .\"",
+    "start": "pnpm run build && electron .",
+    "build": "tsdown && vite build",
+    "build:electron": "pnpm run build && electron-builder",
+    "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json"
+  },
+  "dependencies": {
+    "@moonshot-ai/kimi-code-sdk": "workspace:^",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@moonshot-ai/agent-core": "workspace:^",
+    "@tailwindcss/vite": "^4.1.7",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "@vitejs/plugin-react": "^4.5.2",
+    "concurrently": "^9.1.2",
+    "electron": "^35.2.1",
+    "electron-builder": "^26.0.12",
+    "tailwindcss": "^4.1.7",
+    "tsdown": "^0.22.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  }
+}
