@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import { ipcMain, type BrowserWindow, type IpcMainEvent } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
@@ -7,12 +7,47 @@ let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
 let targetWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
+let requestCounter = 0;
 
 function getHarness(): KimiHarness {
   if (!harness) {
     harness = new KimiHarness({});
   }
   return harness;
+}
+
+function nextRequestId(): string {
+  requestCounter += 1;
+  return `request-${Date.now()}-${requestCounter}`;
+}
+
+function sendToRenderer(channel: string, payload: unknown): boolean {
+  if (!targetWindow || targetWindow.isDestroyed()) return false;
+  targetWindow.webContents.send(channel, payload);
+  return true;
+}
+
+function waitForRendererResponse<TResponse>(
+  channel: string,
+  requestId: string,
+  fallback: TResponse,
+): Promise<TResponse> {
+  return new Promise((resolve) => {
+    const listener = (_event: IpcMainEvent, payload: unknown) => {
+      if (
+        typeof payload !== 'object' ||
+        payload === null ||
+        (payload as { requestId?: unknown }).requestId !== requestId
+      ) {
+        return;
+      }
+
+      ipcMain.removeListener(channel, listener);
+      resolve((payload as { response?: TResponse }).response ?? fallback);
+    };
+
+    ipcMain.on(channel, listener);
+  });
 }
 
 export function registerIpcHandlers(win: BrowserWindow): void {
@@ -34,29 +69,32 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     const session = await h.createSession({
       workDir: options.workDir?.trim() || process.cwd(),
       model,
-      permission: 'auto',
+      permission: 'manual',
     });
 
     activeSession = session;
 
     session.onEvent((event: unknown) => {
-      if (targetWindow && !targetWindow.isDestroyed()) {
-        targetWindow.webContents.send(IPC.AGENT_EVENT, event);
-      }
+      sendToRenderer(IPC.AGENT_EVENT, event);
     });
 
     session.setApprovalHandler(async (request: unknown) => {
-      if (targetWindow && !targetWindow.isDestroyed()) {
-        targetWindow.webContents.send(IPC.AGENT_APPROVAL, request);
+      const requestId = nextRequestId();
+      const sent = sendToRenderer(IPC.AGENT_APPROVAL, { requestId, request });
+      if (!sent) {
+        return { decision: 'cancelled', feedback: 'No renderer is available for approval.' };
       }
-      return { decision: 'approved' };
+      return waitForRendererResponse(IPC.AGENT_APPROVAL_RESPOND, requestId, {
+        decision: 'cancelled',
+        feedback: 'Approval request was cancelled.',
+      });
     });
 
     session.setQuestionHandler(async (request: unknown) => {
-      if (targetWindow && !targetWindow.isDestroyed()) {
-        targetWindow.webContents.send(IPC.AGENT_QUESTION, request);
-      }
-      return null;
+      const requestId = nextRequestId();
+      const sent = sendToRenderer(IPC.AGENT_QUESTION, { requestId, request });
+      if (!sent) return null;
+      return waitForRendererResponse(IPC.AGENT_QUESTION_RESPOND, requestId, null);
     });
 
     return { id: session.id, workDir: session.workDir };

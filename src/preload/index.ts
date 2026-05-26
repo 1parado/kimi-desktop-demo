@@ -8,10 +8,24 @@ export interface KimiAPI {
   cancel(): Promise<void>;
   listSessions(workDir: string): Promise<unknown[]>;
   onEvent(callback: (event: unknown) => void): () => void;
-  onApprovalRequest(callback: (request: unknown) => void): () => void;
-  respondApproval(response: unknown): void;
-  onQuestionRequest(callback: (request: unknown) => void): () => void;
-  respondQuestion(response: unknown): void;
+  onApprovalRequest(callback: (payload: { requestId: string; request: unknown }) => void): () => void;
+  respondApproval(payload: { requestId: string; response: unknown }): void;
+  onQuestionRequest(callback: (payload: { requestId: string; request: unknown }) => void): () => void;
+  respondQuestion(payload: { requestId: string; response: unknown }): void;
+}
+
+interface RequestPayload {
+  requestId: string;
+  request: unknown;
+}
+
+function isRequestPayload(value: unknown): value is RequestPayload {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { requestId?: unknown }).requestId === 'string' &&
+    'request' in value
+  );
 }
 
 const api: KimiAPI = {
@@ -36,7 +50,9 @@ const api: KimiAPI = {
     return () => ipcRenderer.removeListener(IPC.AGENT_EVENT, listener as any);
   },
   onApprovalRequest(callback) {
-    const listener = (_event: unknown, data: unknown) => callback(data);
+    const listener = (_event: unknown, data: unknown) => {
+      if (isRequestPayload(data)) callback(data);
+    };
     ipcRenderer.on(IPC.AGENT_APPROVAL, listener as any);
     return () => ipcRenderer.removeListener(IPC.AGENT_APPROVAL, listener as any);
   },
@@ -44,7 +60,9 @@ const api: KimiAPI = {
     ipcRenderer.send(IPC.AGENT_APPROVAL_RESPOND, response);
   },
   onQuestionRequest(callback) {
-    const listener = (_event: unknown, data: unknown) => callback(data);
+    const listener = (_event: unknown, data: unknown) => {
+      if (isRequestPayload(data)) callback(data);
+    };
     ipcRenderer.on(IPC.AGENT_QUESTION, listener as any);
     return () => ipcRenderer.removeListener(IPC.AGENT_QUESTION, listener as any);
   },

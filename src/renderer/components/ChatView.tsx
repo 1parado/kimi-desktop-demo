@@ -1,5 +1,6 @@
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
+import { ApprovalDialog } from './ApprovalDialog';
 import { useAgent } from '../hooks/useAgent';
 
 const tools = [
@@ -46,6 +47,7 @@ export function ChatView() {
           </div>
         </aside>
       </div>
+      <ApprovalDialog />
     </div>
   );
 }

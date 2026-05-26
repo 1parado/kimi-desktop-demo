@@ -1,23 +1,39 @@
 import { create } from 'zustand';
 
+export type ToolStatus = 'running' | 'completed' | 'failed';
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
   toolName?: string;
+  toolCallId?: string;
+  toolStatus?: ToolStatus;
   isStreaming?: boolean;
+}
+
+export interface ApprovalPrompt {
+  requestId: string;
+  toolName: string;
+  action: string;
+  summary: string;
+  detail?: string;
 }
 
 export interface ChatState {
   sessionId: string | null;
   messages: Message[];
   isLoading: boolean;
+  pendingApproval: ApprovalPrompt | null;
   addUserMessage: (content: string) => void;
   appendAssistantDelta: (delta: string) => void;
   startAssistantMessage: () => void;
   finishAssistantMessage: () => void;
-  addToolMessage: (toolName: string, content: string) => void;
+  startToolMessage: (toolCallId: string, toolName: string, content: string) => void;
+  updateToolMessage: (toolCallId: string, content: string) => void;
+  finishToolMessage: (toolCallId: string, status: Exclude<ToolStatus, 'running'>, content?: string) => void;
   addErrorMessage: (content: string) => void;
+  setPendingApproval: (approval: ApprovalPrompt | null) => void;
   setSessionId: (id: string) => void;
   setLoading: (loading: boolean) => void;
   clearMessages: () => void;
@@ -28,10 +44,27 @@ function nextId(): string {
   return `msg-${++messageCounter}-${Date.now()}`;
 }
 
+function upsertTool(
+  messages: Message[],
+  toolCallId: string,
+  createMessage: () => Message,
+  updateMessage: (message: Message) => Message,
+): Message[] {
+  const index = messages.findIndex((message) => message.toolCallId === toolCallId);
+  if (index === -1) {
+    return [...messages, createMessage()];
+  }
+
+  const next = [...messages];
+  next[index] = updateMessage(next[index]!);
+  return next;
+}
+
 export const useChatStore = create<ChatState>((set) => ({
   sessionId: null,
   messages: [],
   isLoading: false,
+  pendingApproval: null,
 
   addUserMessage(content) {
     set((state) => ({
@@ -69,17 +102,73 @@ export const useChatStore = create<ChatState>((set) => ({
     });
   },
 
-  addToolMessage(toolName, content) {
+  startToolMessage(toolCallId, toolName, content) {
     set((state) => ({
-      messages: [...state.messages, { id: nextId(), role: 'tool', toolName, content }],
+      messages: upsertTool(
+        state.messages,
+        toolCallId,
+        () => ({
+          id: nextId(),
+          role: 'tool',
+          toolCallId,
+          toolName,
+          toolStatus: 'running',
+          content,
+        }),
+        (message) => ({ ...message, toolName, toolStatus: 'running', content }),
+      ),
+    }));
+  },
+
+  updateToolMessage(toolCallId, content) {
+    set((state) => ({
+      messages: upsertTool(
+        state.messages,
+        toolCallId,
+        () => ({
+          id: nextId(),
+          role: 'tool',
+          toolCallId,
+          toolName: 'Tool',
+          toolStatus: 'running',
+          content,
+        }),
+        (message) => ({ ...message, content, toolStatus: 'running' }),
+      ),
+    }));
+  },
+
+  finishToolMessage(toolCallId, status, content) {
+    set((state) => ({
+      messages: upsertTool(
+        state.messages,
+        toolCallId,
+        () => ({
+          id: nextId(),
+          role: 'tool',
+          toolCallId,
+          toolName: 'Tool',
+          toolStatus: status,
+          content: content ?? (status === 'failed' ? 'Tool failed.' : 'Tool completed.'),
+        }),
+        (message) => ({
+          ...message,
+          toolStatus: status,
+          content: content ?? message.content,
+        }),
+      ),
     }));
   },
 
   addErrorMessage(content) {
     set((state) => ({
-      messages: [...state.messages, { id: nextId(), role: 'tool', toolName: 'Error', content }],
+      messages: [...state.messages, { id: nextId(), role: 'tool', toolName: 'Error', toolStatus: 'failed', content }],
       isLoading: false,
     }));
+  },
+
+  setPendingApproval(approval) {
+    set({ pendingApproval: approval });
   },
 
   setSessionId(id) {
@@ -91,6 +180,6 @@ export const useChatStore = create<ChatState>((set) => ({
   },
 
   clearMessages() {
-    set({ messages: [], sessionId: null });
+    set({ messages: [], sessionId: null, pendingApproval: null });
   },
 }));
