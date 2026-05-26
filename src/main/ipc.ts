@@ -59,13 +59,19 @@ interface ReplayContextMessage {
   role: string;
   name?: string;
   content: readonly unknown[];
-  toolCalls: readonly unknown[];
+  toolCalls?: readonly unknown[];
   toolCallId?: string;
   isError?: boolean;
 }
 
 type ReplayMessageRecord = { type: 'message'; message: ReplayContextMessage };
 type ReplayRecord = ReplayMessageRecord | { type: string; message?: unknown };
+type ReplayAgentState = {
+  context?: {
+    history?: readonly ReplayContextMessage[];
+  };
+  replay?: readonly ReplayRecord[];
+};
 
 function getHarness(): KimiHarness {
   if (!harness) {
@@ -391,50 +397,62 @@ async function getGitDiffPreview(): Promise<PreviewDiffResult> {
 
 function replayMessages(session: Session): ChatMessageSnapshot[] {
   const state = session.getResumeState();
-  const replay = (state?.agents['main']?.replay ?? []) as readonly ReplayRecord[];
-  const messages: ChatMessageSnapshot[] = [];
-  replay.forEach((record, index) => {
-    if (!isReplayMessageRecord(record)) return;
-    const message = record.message;
-    const content = formatContent(message.content);
-    const toolCallSummary = formatToolCalls(message.toolCalls);
-    const fallback = toolCallSummary ?? (message.role === 'tool' ? 'Tool completed.' : '');
-    if (content.length === 0 && fallback.length === 0) return;
-    if (message.role === 'user' || message.role === 'assistant') {
-      messages.push({
-        id: `replay-${index}`,
-        role: message.role,
-        content: content || fallback,
-      });
-      return;
-    }
-    if (message.role === 'tool') {
-      messages.push({
-        id: `replay-${index}`,
-        role: 'tool',
-        toolName: message.name ?? 'Tool',
-        toolCallId: message.toolCallId,
-        toolStatus: message.isError === true ? 'failed' : 'completed',
-        content: content || fallback,
-      });
-      return;
-    }
-    messages.push({
-      id: `replay-${index}`,
-      role: 'tool',
-      toolName: 'System',
-      toolStatus: 'completed',
-      content: content || fallback,
-    });
-  });
-  return messages;
+  const agent = getReplayAgentState(state);
+  const replay = agent?.replay ?? [];
+  const replayedMessages = replay
+    .filter(isReplayMessageRecord)
+    .map((record) => record.message);
+  const history = agent?.context?.history ?? [];
+  const source = replayedMessages.length > 0 ? replayedMessages : history;
+  return source.flatMap((message, index) => formatReplayMessage(message, index));
 }
 
 function isReplayMessageRecord(record: ReplayRecord): record is ReplayMessageRecord {
   return record.type === 'message' && isRecord(record.message);
 }
 
-function formatContent(content: readonly unknown[]): string {
+function getReplayAgentState(state: ReturnType<Session['getResumeState']>): ReplayAgentState | undefined {
+  const agents = state?.agents;
+  if (!agents) return undefined;
+  return (agents['main'] ?? Object.values(agents)[0]) as ReplayAgentState | undefined;
+}
+
+function formatReplayMessage(message: ReplayContextMessage, index: number): ChatMessageSnapshot[] {
+  const content = formatContent(message.content);
+  const toolCallSummary = formatToolCalls(message.toolCalls ?? []);
+  const fallback = toolCallSummary ?? (message.role === 'tool' ? 'Tool completed.' : '');
+  if (content.length === 0 && fallback.length === 0) return [];
+
+  if (message.role === 'user' || message.role === 'assistant') {
+    return [{
+      id: `replay-${index}`,
+      role: message.role,
+      content: content || fallback,
+    }];
+  }
+
+  if (message.role === 'tool') {
+    return [{
+      id: `replay-${index}`,
+      role: 'tool',
+      toolName: message.name ?? 'Tool',
+      toolCallId: message.toolCallId,
+      toolStatus: message.isError === true ? 'failed' : 'completed',
+      content: content || fallback,
+    }];
+  }
+
+  return [{
+    id: `replay-${index}`,
+    role: 'tool',
+    toolName: 'System',
+    toolStatus: 'completed',
+    content: content || fallback,
+  }];
+}
+
+function formatContent(content: readonly unknown[] | string): string {
+  if (typeof content === 'string') return content;
   return content
     .map((part) => {
       if (!isRecord(part)) return '';

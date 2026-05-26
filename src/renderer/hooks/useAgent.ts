@@ -124,10 +124,11 @@ export function useAgent() {
         await createSession(sessionWorkDir);
       }
       await api.prompt(input.prompt);
+      void loadSettings();
     } catch (error) {
       addErrorMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [sessionId, workDir, addUserMessage, addErrorMessage, setLoading, createSession]);
+  }, [sessionId, workDir, addUserMessage, addErrorMessage, setLoading, createSession, loadSettings]);
 
   const cancel = useCallback(async () => {
     await window.kimiAPI?.cancel();

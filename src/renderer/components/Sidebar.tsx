@@ -10,23 +10,55 @@ interface SidebarProps {
 
 export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
   const sessionId = useChatStore((s) => s.sessionId);
-  const clearMessages = useChatStore((s) => s.clearMessages);
+  const addErrorMessage = useChatStore((s) => s.addErrorMessage);
+  const startNewSession = useChatStore((s) => s.startNewSession);
   const switchSession = useChatStore((s) => s.switchSession);
-  const { sessions, workDir, pinnedSessionIds, loadSettings, setWorkDir, togglePinnedSession } = useSettingsStore();
+  const {
+    sessions,
+    workDir,
+    selectedModel,
+    thinking,
+    permission,
+    pinnedSessionIds,
+    loadSettings,
+    setWorkDir,
+    togglePinnedSession,
+  } = useSettingsStore();
 
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
-
-  function handleNewChat() {
-    clearMessages();
-  }
 
   async function handleSelectSession(session: SessionSummary) {
     const result = await window.kimiAPI?.resumeSession(session.id);
     if (!result) return;
     await setWorkDir(result.workDir);
     switchSession(result.id, sessionTitle(session), result.messages);
+  }
+
+  async function handleCreateSession() {
+    const api = window.kimiAPI;
+    if (!api) {
+      addErrorMessage('Kimi desktop bridge is unavailable. Start the app with Electron to create a session.');
+      return;
+    }
+
+    try {
+      const sessionWorkDir = workDir || await api.getDefaultWorkDir();
+      const result = await api.createSession({
+        workDir: sessionWorkDir,
+        model: selectedModel,
+        thinking,
+        permission,
+      });
+      if (result.workDir !== workDir) {
+        await setWorkDir(result.workDir);
+      }
+      startNewSession(result.id);
+      void loadSettings();
+    } catch (error) {
+      addErrorMessage(error instanceof Error ? error.message : String(error));
+    }
   }
 
   const pinnedSessions = [...sessions]
@@ -53,19 +85,15 @@ export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
           <div className="truncate text-sm font-semibold text-[var(--ink)]">Kimi Desktop</div>
           <div className="text-[11px] text-[var(--muted)]">Agent workspace</div>
         </div>
-        <button
-          onClick={handleNewChat}
-          className="icon-button"
-          title="New session"
-          aria-label="New session"
-        >
-          +
-        </button>
       </div>
 
       <nav className="space-y-1 px-3">
-        {['新对话', '搜索', '技能', '插件', '自动化'].map((item, index) => (
-          <button key={item} className={`nav-item ${index === 0 ? 'active' : ''}`}>
+        <button type="button" className="nav-item new-session-action" onClick={() => void handleCreateSession()}>
+          <span className="nav-plus" />
+          <span>新会话</span>
+        </button>
+        {['搜索', '技能', '插件', '自动化'].map((item) => (
+          <button key={item} className="nav-item">
             <span className="nav-dot" />
             <span>{item}</span>
           </button>

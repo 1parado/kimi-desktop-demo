@@ -18,11 +18,74 @@ interface ComposerAttachment {
   content: string;
 }
 
+interface SlashCommand {
+  id: string;
+  command: string;
+  title: string;
+  description: string;
+  hint: string;
+}
+
+interface SlashCommandTrigger {
+  start: number;
+  end: number;
+  query: string;
+  key: string;
+}
+
 const MAX_TEXT_ATTACHMENT_BYTES = 1024 * 1024;
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: 'plan',
+    command: '/plan',
+    title: '制定计划',
+    description: '先拆解任务，再执行实现。',
+    hint: '规划',
+  },
+  {
+    id: 'review',
+    command: '/review',
+    title: '代码审查',
+    description: '检查风险、回归和测试缺口。',
+    hint: '审查',
+  },
+  {
+    id: 'fix',
+    command: '/fix',
+    title: '修复问题',
+    description: '定位 bug 并提交最小改动。',
+    hint: '修复',
+  },
+  {
+    id: 'test',
+    command: '/test',
+    title: '运行验证',
+    description: '执行相关测试或类型检查。',
+    hint: '验证',
+  },
+  {
+    id: 'explain',
+    command: '/explain',
+    title: '解释代码',
+    description: '说明当前实现和关键路径。',
+    hint: '说明',
+  },
+  {
+    id: 'commit',
+    command: '/commit',
+    title: '准备提交',
+    description: '整理变更并生成提交说明。',
+    hint: 'Git',
+  },
+];
 
 export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [caretPosition, setCaretPosition] = useState(0);
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+  const [dismissedCommandKey, setDismissedCommandKey] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
@@ -37,7 +100,45 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
     selectWorkDir,
   } = useSettingsStore();
 
+  const slashTrigger = getSlashCommandTrigger(value, caretPosition);
+  const matchingCommands = slashTrigger
+    ? SLASH_COMMANDS.filter((item) => matchesSlashCommand(item, slashTrigger.query))
+    : [];
+  const isCommandPaletteOpen = Boolean(
+    slashTrigger &&
+      matchingCommands.length > 0 &&
+      dismissedCommandKey !== slashTrigger.key &&
+      !isLoading,
+  );
+  const selectedCommand = matchingCommands[Math.min(activeCommandIndex, matchingCommands.length - 1)];
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (isCommandPaletteOpen && slashTrigger) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveCommandIndex((current) => (current + 1) % matchingCommands.length);
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveCommandIndex((current) => (current - 1 + matchingCommands.length) % matchingCommands.length);
+        return;
+      }
+
+      if ((e.key === 'Enter' || e.key === 'Tab') && selectedCommand) {
+        e.preventDefault();
+        insertSlashCommand(selectedCommand.command);
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setDismissedCommandKey(slashTrigger.key);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -49,18 +150,38 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
     if ((!trimmed && attachments.length === 0) || isLoading) return;
     onSend(buildSubmission(trimmed, attachments));
     setValue('');
+    setCaretPosition(0);
+    setActiveCommandIndex(0);
+    setDismissedCommandKey(null);
     setAttachments([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
   }
 
-  function handleInput() {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-    }
+  function updateValue(nextValue: string, nextCaret: number) {
+    setValue(nextValue);
+    setCaretPosition(nextCaret);
+    setActiveCommandIndex(0);
+    setDismissedCommandKey(null);
+  }
+
+  function syncCaret(el: HTMLTextAreaElement) {
+    setCaretPosition(el.selectionStart ?? el.value.length);
+  }
+
+  function insertSlashCommand(command: string) {
+    if (!slashTrigger) return;
+    const nextValue = `${value.slice(0, slashTrigger.start)}${command} ${value.slice(slashTrigger.end)}`;
+    const nextCaret = slashTrigger.start + command.length + 1;
+    updateValue(nextValue, nextCaret);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(nextCaret, nextCaret);
+      resizeTextarea(el);
+    });
   }
 
   async function handleFilesSelected(files: FileList | null) {
@@ -107,14 +228,48 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
             ))}
           </div>
         )}
+        {isCommandPaletteOpen && slashTrigger && (
+          <div className="slash-command-panel" role="listbox" aria-label="Slash 命令">
+            <div className="slash-command-header">
+              <span className="slash-command-prompt">/</span>
+              <span className="slash-command-title">命令</span>
+              <span className="slash-command-count">{matchingCommands.length} 项</span>
+            </div>
+            <div className="slash-command-list">
+              {matchingCommands.map((command, index) => (
+                <button
+                  key={command.id}
+                  type="button"
+                  role="option"
+                  aria-selected={index === activeCommandIndex}
+                  className={`slash-command-item ${index === activeCommandIndex ? 'active' : ''}`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    insertSlashCommand(command.command);
+                  }}
+                >
+                  <span className="slash-command-name">{command.command}</span>
+                  <span className="slash-command-copy">
+                    <span className="slash-command-label">{command.title}</span>
+                    <span className="slash-command-description">{command.description}</span>
+                  </span>
+                  <span className="slash-command-hint">{command.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={value}
           onChange={(e) => {
-            setValue(e.target.value);
-            handleInput();
+            updateValue(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+            resizeTextarea(e.currentTarget);
           }}
+          onClick={(e) => syncCaret(e.currentTarget)}
           onKeyDown={handleKeyDown}
+          onKeyUp={(e) => syncCaret(e.currentTarget)}
+          onSelect={(e) => syncCaret(e.currentTarget)}
           placeholder="尽管问"
           rows={1}
           className="min-h-[54px] w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--ink)] placeholder-[var(--muted-soft)] outline-none"
@@ -192,6 +347,12 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
       </div>
     </div>
   );
+}
+
+function resizeTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
 }
 
 async function readAttachment(file: File): Promise<ComposerAttachment> {
@@ -272,6 +433,33 @@ function buildSubmission(text: string, attachments: ComposerAttachment[]): SendM
     prompt: parts,
     displayText,
   };
+}
+
+function getSlashCommandTrigger(value: string, caretPosition: number): SlashCommandTrigger | null {
+  const beforeCaret = value.slice(0, caretPosition);
+  const tokenStart = Math.max(beforeCaret.lastIndexOf(' '), beforeCaret.lastIndexOf('\n'), beforeCaret.lastIndexOf('\t')) + 1;
+  if (value[tokenStart] !== '/') return null;
+
+  const query = value.slice(tokenStart + 1, caretPosition);
+  if (/\s/.test(query)) return null;
+
+  return {
+    start: tokenStart,
+    end: caretPosition,
+    query,
+    key: `${tokenStart}:${query}`,
+  };
+}
+
+function matchesSlashCommand(command: SlashCommand, rawQuery: string): boolean {
+  const query = rawQuery.toLowerCase();
+  if (!query) return true;
+  return (
+    command.command.slice(1).startsWith(query) ||
+    command.title.toLowerCase().includes(query) ||
+    command.description.toLowerCase().includes(query) ||
+    command.hint.toLowerCase().includes(query)
+  );
 }
 
 function readAsDataUrl(file: File): Promise<string> {

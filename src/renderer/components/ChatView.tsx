@@ -21,7 +21,6 @@ export function ChatView({ previewOpen, onTogglePreview }: ChatViewProps) {
             <span className="tab-logo">K</span>
             <span>Kimi Code</span>
           </button>
-          <button className="tab-add" aria-label="New tab">+</button>
         </div>
         <div className="chrome-actions">
           <button

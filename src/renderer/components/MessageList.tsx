@@ -3,6 +3,37 @@ import { useChatStore } from '../store/chat';
 import type { Message } from '../store/chat';
 import { MarkdownMessage } from './MarkdownMessage';
 
+function ToolMessageBubble({ message }: { message: Message }) {
+  const status = message.toolStatus ?? 'completed';
+  const [isExpanded, setExpanded] = useState(false);
+  const detailId = `${message.id}-tool-detail`;
+
+  return (
+    <div className="flex justify-start">
+      <div className={`message-bubble tool ${status} ${isExpanded ? 'expanded' : 'collapsed'}`}>
+        <button
+          type="button"
+          className="tool-message-summary"
+          aria-expanded={isExpanded}
+          aria-controls={detailId}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <span className={`tool-status-dot ${status}`} />
+          <span className="tool-message-name">{message.toolName ?? 'Tool'}</span>
+          <span className="tool-status-label">{statusLabel(status)}</span>
+          <span className="tool-toggle-label">{isExpanded ? '隐藏' : '展开'}</span>
+          <span className="tool-toggle-chevron" aria-hidden="true" />
+        </button>
+        {isExpanded && (
+          <div id={detailId} className="tool-message-detail">
+            {message.content}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   copied,
@@ -23,19 +54,7 @@ function MessageBubble({
   }
 
   if (message.role === 'tool') {
-    const status = message.toolStatus ?? 'completed';
-    return (
-      <div className="flex justify-start">
-        <div className={`message-bubble tool ${status}`}>
-          <div className="mb-2 flex items-center gap-2">
-            <span className={`tool-status-dot ${status}`} />
-            <div className="font-mono text-[11px] uppercase text-[var(--warning)]">{message.toolName}</div>
-            <span className="tool-status-label">{statusLabel(status)}</span>
-          </div>
-          <div className="leading-5 text-[var(--ink-muted)]">{message.content}</div>
-        </div>
-      </div>
-    );
+    return <ToolMessageBubble message={message} />;
   }
 
   return (
