@@ -20,6 +20,7 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
     setModel,
     setThinking,
     setPermission,
+    selectWorkDir,
   } = useSettingsStore();
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -80,7 +81,6 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
             </label>
           </div>
           <div className="flex items-center gap-2">
-            <span className="model-badge">Kimi</span>
             <select
               value={selectedModel ?? ''}
               onChange={(event) => void setModel(event.target.value)}
@@ -121,11 +121,11 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
             )}
           </div>
         </div>
-        <div className="workspace-strip">
+        <button className="workspace-strip" type="button" onClick={() => void selectWorkDir()}>
           <span className="folder-glyph" />
           <span className="truncate">{workDir || '未选择工作区'}</span>
           <span className="chevron">⌄</span>
-        </div>
+        </button>
       </div>
     </div>
   );

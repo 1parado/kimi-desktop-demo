@@ -23,6 +23,7 @@ export interface SessionSummary {
 
 export interface KimiAPI {
   getDefaultWorkDir(): Promise<string>;
+  selectWorkDir(): Promise<RuntimeSettings | null>;
   getRuntimeSettings(): Promise<RuntimeSettings>;
   updateRuntimeSettings(input: { model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<RuntimeSettings>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
@@ -56,6 +57,9 @@ function isRequestPayload(value: unknown): value is RequestPayload {
 const api: KimiAPI = {
   getDefaultWorkDir() {
     return ipcRenderer.invoke(IPC.SYSTEM_DEFAULT_WORKDIR);
+  },
+  selectWorkDir() {
+    return ipcRenderer.invoke(IPC.SYSTEM_SELECT_WORKDIR);
   },
   getRuntimeSettings() {
     return ipcRenderer.invoke(IPC.CONFIG_GET);

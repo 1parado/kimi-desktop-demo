@@ -7,6 +7,7 @@ export const IPC = {
   SESSION_SET_THINKING: 'session:set-thinking',
   SESSION_SET_PERMISSION: 'session:set-permission',
   SYSTEM_DEFAULT_WORKDIR: 'system:default-workdir',
+  SYSTEM_SELECT_WORKDIR: 'system:select-workdir',
   CONFIG_GET: 'config:get',
   CONFIG_UPDATE_RUNTIME: 'config:update-runtime',
   AGENT_EVENT: 'agent:event',

@@ -10,6 +10,7 @@ export interface SettingsState {
   sessions: SessionSummary[];
   isReady: boolean;
   loadSettings: () => Promise<void>;
+  selectWorkDir: () => Promise<void>;
   setModel: (model: string) => Promise<void>;
   setThinking: (thinking: ThinkingLevel) => Promise<void>;
   setPermission: (permission: PermissionMode) => Promise<void>;
@@ -39,6 +40,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     const api = window.kimiAPI;
     if (!api) return;
     const settings = await api.getRuntimeSettings();
+    const sessions = await api.listSessions(settings.workDir);
+    set({ ...applySettings(settings), sessions });
+  },
+
+  async selectWorkDir() {
+    const api = window.kimiAPI;
+    if (!api) return;
+    const settings = await api.selectWorkDir();
+    if (!settings) return;
     const sessions = await api.listSessions(settings.workDir);
     set({ ...applySettings(settings), sessions });
   },

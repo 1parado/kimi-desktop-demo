@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow, type IpcMainEvent } from 'electron';
+import { dialog, ipcMain, type BrowserWindow, type IpcMainEvent } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
@@ -8,6 +8,7 @@ let activeSession: Session | null = null;
 let targetWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
 let requestCounter = 0;
+let selectedWorkDir = process.cwd();
 
 type PermissionMode = 'manual' | 'yolo' | 'auto';
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -99,7 +100,7 @@ async function getRuntimeSettings(): Promise<RuntimeSettings> {
     : normalizeThinking(config.thinking?.effort ?? (config.defaultThinking === false ? 'off' : 'high'));
 
   return {
-    workDir: process.cwd(),
+    workDir: selectedWorkDir,
     models: Array.from(models).sort(),
     selectedModel: config.defaultModel,
     thinking,
@@ -112,7 +113,20 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   if (handlersRegistered) return;
   handlersRegistered = true;
 
-  ipcMain.handle(IPC.SYSTEM_DEFAULT_WORKDIR, async () => process.cwd());
+  ipcMain.handle(IPC.SYSTEM_DEFAULT_WORKDIR, async () => selectedWorkDir);
+
+  ipcMain.handle(IPC.SYSTEM_SELECT_WORKDIR, async () => {
+    const result = await dialog.showOpenDialog(targetWindow ?? undefined, {
+      title: '选择工作区',
+      defaultPath: selectedWorkDir,
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths[0] === undefined) {
+      return null;
+    }
+    selectedWorkDir = result.filePaths[0];
+    return getRuntimeSettings();
+  });
 
   ipcMain.handle(IPC.CONFIG_GET, async () => getRuntimeSettings());
 
@@ -151,7 +165,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     }
 
     const session = await h.createSession({
-      workDir: options.workDir?.trim() || process.cwd(),
+      workDir: options.workDir?.trim() || selectedWorkDir,
       model,
       thinking: options.thinking,
       permission: options.permission ?? normalizePermission(config.defaultPermissionMode),

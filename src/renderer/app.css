@@ -498,13 +498,16 @@ textarea:focus-visible {
 
 .workspace-strip {
   height: 44px;
+  width: 100%;
   justify-content: flex-start;
   gap: 8px;
+  border: 0;
   border-top: 1px solid var(--line);
   background: #f4f5f2;
   padding: 0 16px;
   color: var(--muted);
   font-size: 13px;
+  text-align: left;
 }
 
 .chevron {
