@@ -21,12 +21,29 @@ export interface SessionSummary {
   updatedAt: number;
 }
 
+export interface ChatMessageSnapshot {
+  id: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  toolName?: string;
+  toolCallId?: string;
+  toolStatus?: 'completed' | 'failed';
+}
+
+export interface ResumeSessionResult {
+  id: string;
+  workDir: string;
+  messages: ChatMessageSnapshot[];
+}
+
 export interface KimiAPI {
   getDefaultWorkDir(): Promise<string>;
   selectWorkDir(): Promise<RuntimeSettings | null>;
+  setWorkDir(workDir: string): Promise<RuntimeSettings>;
   getRuntimeSettings(): Promise<RuntimeSettings>;
   updateRuntimeSettings(input: { model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<RuntimeSettings>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
+  resumeSession(id: string): Promise<ResumeSessionResult>;
   prompt(input: string): Promise<void>;
   cancel(): Promise<void>;
   listSessions(workDir: string): Promise<SessionSummary[]>;
@@ -61,6 +78,9 @@ const api: KimiAPI = {
   selectWorkDir() {
     return ipcRenderer.invoke(IPC.SYSTEM_SELECT_WORKDIR);
   },
+  setWorkDir(workDir) {
+    return ipcRenderer.invoke(IPC.SYSTEM_SET_WORKDIR, workDir);
+  },
   getRuntimeSettings() {
     return ipcRenderer.invoke(IPC.CONFIG_GET);
   },
@@ -69,6 +89,9 @@ const api: KimiAPI = {
   },
   createSession(options) {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, options);
+  },
+  resumeSession(id) {
+    return ipcRenderer.invoke(IPC.SESSION_RESUME, id);
   },
   prompt(input) {
     return ipcRenderer.invoke(IPC.SESSION_PROMPT, input);

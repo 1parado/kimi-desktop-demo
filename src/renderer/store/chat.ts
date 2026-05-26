@@ -35,6 +35,7 @@ export interface ChatState {
   addErrorMessage: (content: string) => void;
   setPendingApproval: (approval: ApprovalPrompt | null) => void;
   setSessionId: (id: string) => void;
+  switchSession: (id: string, title: string, messages: Message[]) => void;
   setLoading: (loading: boolean) => void;
   clearMessages: () => void;
 }
@@ -173,6 +174,21 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setSessionId(id) {
     set({ sessionId: id });
+  },
+
+  switchSession(id, title, messages) {
+    set({
+      sessionId: id,
+      messages: messages.length > 0 ? messages : [{
+        id: nextId(),
+        role: 'tool',
+        toolName: 'Session',
+        toolStatus: 'completed',
+        content: `已切换到会话：${title}`,
+      }],
+      isLoading: false,
+      pendingApproval: null,
+    });
   },
 
   setLoading(loading) {

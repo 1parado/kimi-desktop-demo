@@ -8,13 +8,18 @@ export interface SettingsState {
   thinking: ThinkingLevel;
   permission: PermissionMode;
   sessions: SessionSummary[];
+  pinnedSessionIds: string[];
   isReady: boolean;
   loadSettings: () => Promise<void>;
   selectWorkDir: () => Promise<void>;
+  setWorkDir: (workDir: string) => Promise<void>;
+  togglePinnedSession: (sessionId: string) => void;
   setModel: (model: string) => Promise<void>;
   setThinking: (thinking: ThinkingLevel) => Promise<void>;
   setPermission: (permission: PermissionMode) => Promise<void>;
 }
+
+const PINNED_SESSIONS_KEY = 'kimi-desktop:pinned-session-ids';
 
 function applySettings(settings: RuntimeSettings) {
   return {
@@ -34,6 +39,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   thinking: 'high',
   permission: 'manual',
   sessions: [],
+  pinnedSessionIds: readPinnedSessionIds(),
   isReady: false,
 
   async loadSettings() {
@@ -51,6 +57,24 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     if (!settings) return;
     const sessions = await api.listSessions(settings.workDir);
     set({ ...applySettings(settings), sessions });
+  },
+
+  async setWorkDir(workDir) {
+    const api = window.kimiAPI;
+    if (!api) return;
+    const settings = await api.setWorkDir(workDir);
+    const sessions = await api.listSessions(settings.workDir);
+    set({ ...applySettings(settings), sessions });
+  },
+
+  togglePinnedSession(sessionId) {
+    set((state) => {
+      const pinned = state.pinnedSessionIds.includes(sessionId)
+        ? state.pinnedSessionIds.filter((id) => id !== sessionId)
+        : [...state.pinnedSessionIds, sessionId];
+      writePinnedSessionIds(pinned);
+      return { pinnedSessionIds: pinned };
+    });
   },
 
   async setModel(model) {
@@ -77,3 +101,17 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set(applySettings(settings));
   },
 }));
+
+function readPinnedSessionIds(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PINNED_SESSIONS_KEY) ?? '[]') as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedSessionIds(ids: string[]): void {
+  localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(ids));
+}

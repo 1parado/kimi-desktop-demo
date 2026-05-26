@@ -6,7 +6,8 @@ import type { SessionSummary } from '../../preload/index';
 export function Sidebar() {
   const sessionId = useChatStore((s) => s.sessionId);
   const clearMessages = useChatStore((s) => s.clearMessages);
-  const { sessions, workDir, loadSettings } = useSettingsStore();
+  const switchSession = useChatStore((s) => s.switchSession);
+  const { sessions, workDir, pinnedSessionIds, loadSettings, setWorkDir, togglePinnedSession } = useSettingsStore();
 
   useEffect(() => {
     void loadSettings();
@@ -16,9 +17,17 @@ export function Sidebar() {
     clearMessages();
   }
 
-  const recentSessions = [...sessions]
+  async function handleSelectSession(session: SessionSummary) {
+    const result = await window.kimiAPI?.resumeSession(session.id);
+    if (!result) return;
+    await setWorkDir(result.workDir);
+    switchSession(result.id, sessionTitle(session), result.messages);
+  }
+
+  const pinnedSessions = [...sessions]
+    .filter((session) => pinnedSessionIds.includes(session.id))
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, 2);
+    .slice(0, 5);
   const projects = groupSessionsByWorkDir(sessions);
 
   return (
@@ -56,21 +65,27 @@ export function Sidebar() {
       <div className="mt-5 px-4">
         <div className="mb-3 flex items-center justify-between text-[12px] text-[var(--muted)]">
           <span>置顶</span>
-          {recentSessions[0] && (
+          {pinnedSessions[0] && (
             <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] text-[var(--muted)]">
-              {formatRelativeTime(recentSessions[0].updatedAt)}
+              {formatRelativeTime(pinnedSessions[0].updatedAt)}
             </span>
           )}
         </div>
         <div className="space-y-2">
-          {recentSessions.length > 0 ? (
-            recentSessions.map((session) => (
-              <button key={session.id} className="thread-row strong" title={session.id}>
-                {sessionTitle(session)}
-              </button>
+          {pinnedSessions.length > 0 ? (
+            pinnedSessions.map((session) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                active={session.id === sessionId}
+                pinned
+                variant="strong"
+                onSelect={() => void handleSelectSession(session)}
+                onTogglePin={() => togglePinnedSession(session.id)}
+              />
             ))
           ) : (
-            <div className="px-2 text-[12px] text-[var(--muted-soft)]">暂无会话</div>
+            <div className="px-2 text-[12px] text-[var(--muted-soft)]">暂无置顶</div>
           )}
         </div>
       </div>
@@ -81,25 +96,35 @@ export function Sidebar() {
           {projects.length > 0 ? (
             projects.map((project) => (
               <section key={project.workDir}>
-                <div className="project-title" title={project.workDir}>
+                <button
+                  className={`project-title project-button ${project.workDir === workDir ? 'active' : ''}`}
+                  title={project.workDir}
+                  onClick={() => void setWorkDir(project.workDir)}
+                >
                   <span className="folder-glyph" />
                   <span className="truncate">{projectName(project.workDir)}</span>
-                </div>
+                </button>
                 <div className="mt-2 space-y-1 pl-5">
                   {project.sessions.slice(0, 5).map((session) => (
-                    <button key={session.id} className="thread-row subtle" title={session.id}>
-                      {sessionTitle(session)}
-                    </button>
+                    <SessionRow
+                      key={session.id}
+                      session={session}
+                      active={session.id === sessionId}
+                      pinned={pinnedSessionIds.includes(session.id)}
+                      variant="subtle"
+                      onSelect={() => void handleSelectSession(session)}
+                      onTogglePin={() => togglePinnedSession(session.id)}
+                    />
                   ))}
                 </div>
               </section>
             ))
           ) : (
             <section>
-              <div className="project-title" title={workDir}>
+              <button className="project-title project-button active" title={workDir} onClick={() => void setWorkDir(workDir)}>
                 <span className="folder-glyph" />
                 <span className="truncate">{projectName(workDir) || '当前工作区'}</span>
-              </div>
+              </button>
               <div className="mt-2 pl-5 text-[12px] text-[var(--muted-soft)]">暂无对话</div>
             </section>
           )}
@@ -126,6 +151,43 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+function SessionRow({
+  session,
+  active,
+  pinned,
+  variant,
+  onSelect,
+  onTogglePin,
+}: {
+  session: SessionSummary;
+  active: boolean;
+  pinned: boolean;
+  variant: 'strong' | 'subtle';
+  onSelect: () => void;
+  onTogglePin: () => void;
+}) {
+  return (
+    <div className="session-row">
+      <button
+        className={`thread-row ${variant} ${active ? 'active' : ''}`}
+        title={session.id}
+        onClick={onSelect}
+      >
+        <span className="truncate">{sessionTitle(session)}</span>
+      </button>
+      <button
+        type="button"
+        className={`pin-button ${pinned ? 'active' : ''}`}
+        title={pinned ? '取消置顶' : '置顶'}
+        aria-label={pinned ? '取消置顶' : '置顶'}
+        onClick={onTogglePin}
+      >
+        {pinned ? '●' : '○'}
+      </button>
+    </div>
   );
 }
 

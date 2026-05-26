@@ -151,6 +151,11 @@ textarea:focus-visible {
   background: rgba(255, 255, 255, 0.68);
 }
 
+.thread-row.active {
+  color: var(--ink);
+  background: rgba(117, 201, 67, 0.14);
+}
+
 .nav-dot {
   width: 13px;
   height: 13px;
@@ -166,6 +171,43 @@ textarea:focus-visible {
   font-size: 13px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-row .thread-row {
+  min-width: 0;
+  flex: 1;
+}
+
+.pin-button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-soft);
+  font-size: 10px;
+  line-height: 1;
+  transition: 150ms ease;
+}
+
+.session-row:hover .pin-button,
+.pin-button.active {
+  color: var(--kimi-green-strong);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pin-button:hover {
+  color: var(--ink);
+  background: #fff;
 }
 
 .thread-row.strong {
@@ -184,10 +226,22 @@ textarea:focus-visible {
 
 .project-title {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 6px;
   color: var(--ink-muted);
   font-size: 13px;
+  text-align: left;
+}
+
+.project-button:hover,
+.project-button.active {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .folder-glyph {

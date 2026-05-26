@@ -1,5 +1,6 @@
 export const IPC = {
   SESSION_CREATE: 'session:create',
+  SESSION_RESUME: 'session:resume',
   SESSION_PROMPT: 'session:prompt',
   SESSION_CANCEL: 'session:cancel',
   SESSION_LIST: 'session:list',
@@ -8,6 +9,7 @@ export const IPC = {
   SESSION_SET_PERMISSION: 'session:set-permission',
   SYSTEM_DEFAULT_WORKDIR: 'system:default-workdir',
   SYSTEM_SELECT_WORKDIR: 'system:select-workdir',
+  SYSTEM_SET_WORKDIR: 'system:set-workdir',
   CONFIG_GET: 'config:get',
   CONFIG_UPDATE_RUNTIME: 'config:update-runtime',
   AGENT_EVENT: 'agent:event',

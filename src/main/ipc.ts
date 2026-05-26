@@ -1,10 +1,11 @@
-import { dialog, ipcMain, type BrowserWindow, type IpcMainEvent } from 'electron';
+import { dialog, ipcMain, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
 
 let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
+let activeSessionUnsubscribe: (() => void) | undefined;
 let targetWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
 let requestCounter = 0;
@@ -20,6 +21,27 @@ interface RuntimeSettings {
   thinking: ThinkingLevel;
   permission: PermissionMode;
 }
+
+interface ChatMessageSnapshot {
+  id: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  toolName?: string;
+  toolCallId?: string;
+  toolStatus?: 'completed' | 'failed';
+}
+
+interface ReplayContextMessage {
+  role: string;
+  name?: string;
+  content: readonly unknown[];
+  toolCalls: readonly unknown[];
+  toolCallId?: string;
+  isError?: boolean;
+}
+
+type ReplayMessageRecord = { type: 'message'; message: ReplayContextMessage };
+type ReplayRecord = ReplayMessageRecord | { type: string; message?: unknown };
 
 function getHarness(): KimiHarness {
   if (!harness) {
@@ -62,6 +84,35 @@ function waitForRendererResponse<TResponse>(
   });
 }
 
+function attachSession(session: Session): void {
+  activeSessionUnsubscribe?.();
+  activeSessionUnsubscribe = session.onEvent((event: unknown) => {
+    sendToRenderer(IPC.AGENT_EVENT, event);
+  });
+
+  session.setApprovalHandler(async (request: unknown) => {
+    const requestId = nextRequestId();
+    const sent = sendToRenderer(IPC.AGENT_APPROVAL, { requestId, request });
+    if (!sent) {
+      return { decision: 'cancelled', feedback: 'No renderer is available for approval.' };
+    }
+    return waitForRendererResponse(IPC.AGENT_APPROVAL_RESPOND, requestId, {
+      decision: 'cancelled',
+      feedback: 'Approval request was cancelled.',
+    });
+  });
+
+  session.setQuestionHandler(async (request: unknown) => {
+    const requestId = nextRequestId();
+    const sent = sendToRenderer(IPC.AGENT_QUESTION, { requestId, request });
+    if (!sent) return null;
+    return waitForRendererResponse(IPC.AGENT_QUESTION_RESPOND, requestId, null);
+  });
+
+  activeSession = session;
+  selectedWorkDir = session.workDir;
+}
+
 function normalizePermission(value: unknown): PermissionMode {
   return value === 'manual' || value === 'yolo' || value === 'auto' ? value : 'manual';
 }
@@ -89,7 +140,7 @@ async function getRuntimeSettings(): Promise<RuntimeSettings> {
   for (const name of Object.keys(config.models ?? {})) {
     models.add(name);
   }
-  for (const provider of Object.values(config.providers)) {
+  for (const provider of Object.values(config.providers) as Array<{ defaultModel?: string }>) {
     if (provider.defaultModel) {
       models.add(provider.defaultModel);
     }
@@ -116,15 +167,26 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   ipcMain.handle(IPC.SYSTEM_DEFAULT_WORKDIR, async () => selectedWorkDir);
 
   ipcMain.handle(IPC.SYSTEM_SELECT_WORKDIR, async () => {
-    const result = await dialog.showOpenDialog(targetWindow ?? undefined, {
+    const options: OpenDialogOptions = {
       title: '选择工作区',
       defaultPath: selectedWorkDir,
       properties: ['openDirectory'],
-    });
+    };
+    const result = targetWindow === null
+      ? await dialog.showOpenDialog(options)
+      : await dialog.showOpenDialog(targetWindow, options);
     if (result.canceled || result.filePaths[0] === undefined) {
       return null;
     }
     selectedWorkDir = result.filePaths[0];
+    return getRuntimeSettings();
+  });
+
+  ipcMain.handle(IPC.SYSTEM_SET_WORKDIR, async (_event, workDir: string) => {
+    const normalized = workDir.trim();
+    if (normalized.length > 0) {
+      selectedWorkDir = normalized;
+    }
     return getRuntimeSettings();
   });
 
@@ -171,32 +233,16 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       permission: options.permission ?? normalizePermission(config.defaultPermissionMode),
     });
 
-    activeSession = session;
-
-    session.onEvent((event: unknown) => {
-      sendToRenderer(IPC.AGENT_EVENT, event);
-    });
-
-    session.setApprovalHandler(async (request: unknown) => {
-      const requestId = nextRequestId();
-      const sent = sendToRenderer(IPC.AGENT_APPROVAL, { requestId, request });
-      if (!sent) {
-        return { decision: 'cancelled', feedback: 'No renderer is available for approval.' };
-      }
-      return waitForRendererResponse(IPC.AGENT_APPROVAL_RESPOND, requestId, {
-        decision: 'cancelled',
-        feedback: 'Approval request was cancelled.',
-      });
-    });
-
-    session.setQuestionHandler(async (request: unknown) => {
-      const requestId = nextRequestId();
-      const sent = sendToRenderer(IPC.AGENT_QUESTION, { requestId, request });
-      if (!sent) return null;
-      return waitForRendererResponse(IPC.AGENT_QUESTION_RESPOND, requestId, null);
-    });
+    attachSession(session);
 
     return { id: session.id, workDir: session.workDir };
+  });
+
+  ipcMain.handle(IPC.SESSION_RESUME, async (_event, id: string) => {
+    const h = getHarness();
+    const session = await h.resumeSession({ id });
+    attachSession(session);
+    return { id: session.id, workDir: session.workDir, messages: replayMessages(session) };
   });
 
   ipcMain.handle(IPC.SESSION_PROMPT, async (_event, input: string) => {
@@ -228,4 +274,89 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     const h = getHarness();
     return h.listSessions({ workDir });
   });
+}
+
+function replayMessages(session: Session): ChatMessageSnapshot[] {
+  const state = session.getResumeState();
+  const replay = (state?.agents['main']?.replay ?? []) as readonly ReplayRecord[];
+  const messages: ChatMessageSnapshot[] = [];
+  replay.forEach((record, index) => {
+    if (!isReplayMessageRecord(record)) return;
+    const message = record.message;
+    const content = formatContent(message.content);
+    const toolCallSummary = formatToolCalls(message.toolCalls);
+    const fallback = toolCallSummary ?? (message.role === 'tool' ? 'Tool completed.' : '');
+    if (content.length === 0 && fallback.length === 0) return;
+    if (message.role === 'user' || message.role === 'assistant') {
+      messages.push({
+        id: `replay-${index}`,
+        role: message.role,
+        content: content || fallback,
+      });
+      return;
+    }
+    if (message.role === 'tool') {
+      messages.push({
+        id: `replay-${index}`,
+        role: 'tool',
+        toolName: message.name ?? 'Tool',
+        toolCallId: message.toolCallId,
+        toolStatus: message.isError === true ? 'failed' : 'completed',
+        content: content || fallback,
+      });
+      return;
+    }
+    messages.push({
+      id: `replay-${index}`,
+      role: 'tool',
+      toolName: 'System',
+      toolStatus: 'completed',
+      content: content || fallback,
+    });
+  });
+  return messages;
+}
+
+function isReplayMessageRecord(record: ReplayRecord): record is ReplayMessageRecord {
+  return record.type === 'message' && isRecord(record.message);
+}
+
+function formatContent(content: readonly unknown[]): string {
+  return content
+    .map((part) => {
+      if (!isRecord(part)) return '';
+      switch (part.type) {
+        case 'text':
+          return typeof part.text === 'string' ? part.text : '';
+        case 'think':
+          return typeof part.think === 'string' ? `思考：${part.think}` : '';
+        case 'image_url':
+          return '[图片]';
+        case 'audio_url':
+          return '[音频]';
+        case 'video_url':
+          return '[视频]';
+        default:
+          return '';
+      }
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatToolCalls(toolCalls: readonly unknown[]): string | undefined {
+  if (toolCalls.length === 0) return undefined;
+  const names = toolCalls
+    .map((toolCall) => {
+      if (!isRecord(toolCall)) return undefined;
+      const fn = toolCall.function;
+      if (!isRecord(fn)) return undefined;
+      return typeof fn.name === 'string' ? fn.name : undefined;
+    })
+    .filter((name): name is string => name !== undefined);
+  return names.length > 0 ? `调用工具：${names.join(', ')}` : '调用工具';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
