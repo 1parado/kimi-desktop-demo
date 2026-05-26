@@ -79,7 +79,13 @@ export function PreviewPanel({ width }: PreviewPanelProps) {
             actionLabel={isLoading ? '读取中...' : '刷新 diff'}
             onAction={() => void loadDiff()}
           >
-            <pre className="preview-code">{diffPreview?.content ?? '点击“刷新 diff”查看当前工作区修改。'}</pre>
+            {diffPreview?.content ? (
+              <pre className="preview-code">{diffPreview.content}</pre>
+            ) : (
+              <div className="preview-empty">
+                {isLoading ? '正在读取当前 session 的变更。' : '当前 session 暂无可展示的变更。'}
+              </div>
+            )}
           </PreviewFrame>
         )}
 
@@ -120,7 +126,7 @@ export function PreviewPanel({ width }: PreviewPanelProps) {
               </button>
             </div>
             {previewUrl ? (
-              <iframe title="网页预览" src={previewUrl} className="browser-frame" sandbox="allow-scripts allow-forms allow-same-origin" />
+              <webview title="网页预览" src={previewUrl} className="browser-frame" allowpopups={true} />
             ) : (
               <div className="preview-empty browser-empty">输入 URL 后，这里会作为内置浏览器预览区。</div>
             )}

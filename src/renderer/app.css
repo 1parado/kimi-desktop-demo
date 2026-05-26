@@ -1185,6 +1185,236 @@ textarea:focus-visible {
   box-shadow: 0 16px 44px rgba(36, 45, 38, 0.07);
 }
 
+.assistant-message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 9px;
+}
+
+.assistant-message-label {
+  color: var(--kimi-green-strong);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.copy-response-button {
+  display: inline-flex;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(247, 248, 245, 0.72);
+  color: var(--ink-muted);
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 700;
+  transition: 150ms ease;
+}
+
+.copy-response-button:hover,
+.copy-response-button.copied {
+  border-color: rgba(117, 201, 67, 0.34);
+  background: #f7fff1;
+  color: var(--kimi-green-strong);
+}
+
+.copy-response-icon {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.copy-response-icon::before,
+.copy-response-icon::after {
+  position: absolute;
+  width: 8px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  content: "";
+}
+
+.copy-response-icon::before {
+  right: 0;
+  bottom: 0;
+  background: currentColor;
+  opacity: 0.12;
+}
+
+.copy-response-icon::after {
+  top: 0;
+  left: 0;
+  background: #fff;
+}
+
+.markdown-message {
+  overflow-wrap: anywhere;
+}
+
+.markdown-message > :first-child {
+  margin-top: 0;
+}
+
+.markdown-message > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-message p,
+.markdown-message ul,
+.markdown-message ol,
+.markdown-message blockquote,
+.markdown-message pre,
+.markdown-message table,
+.markdown-message .katex-display,
+.markdown-message .mermaid-diagram {
+  margin: 0.75rem 0;
+}
+
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4 {
+  margin: 1rem 0 0.45rem;
+  color: var(--ink);
+  font-weight: 800;
+  line-height: 1.28;
+}
+
+.markdown-message h1 {
+  font-size: 1.45rem;
+}
+
+.markdown-message h2 {
+  font-size: 1.22rem;
+}
+
+.markdown-message h3 {
+  font-size: 1.08rem;
+}
+
+.markdown-message h4 {
+  font-size: 0.98rem;
+}
+
+.markdown-message ul,
+.markdown-message ol {
+  padding-left: 1.35rem;
+}
+
+.markdown-message li + li {
+  margin-top: 0.25rem;
+}
+
+.markdown-message blockquote {
+  border-left: 3px solid rgba(117, 201, 67, 0.48);
+  background: rgba(246, 250, 242, 0.76);
+  padding: 0.65rem 0.8rem;
+  color: var(--ink-muted);
+}
+
+.markdown-message a {
+  color: var(--kimi-green-strong);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.markdown-message a:hover {
+  text-decoration: underline;
+}
+
+.markdown-message code {
+  border: 1px solid rgba(36, 45, 38, 0.08);
+  border-radius: 5px;
+  background: #f1f4ef;
+  padding: 0.1rem 0.28rem;
+  color: #2a3a25;
+  font-family: "Cascadia Code", "IBM Plex Mono", monospace;
+  font-size: 0.9em;
+}
+
+.markdown-message pre {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f6f7f3;
+  padding: 12px;
+}
+
+.markdown-message pre code {
+  display: block;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #29332c;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.markdown-message table {
+  display: block;
+  width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+.markdown-message th,
+.markdown-message td {
+  border: 1px solid var(--line);
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.markdown-message th {
+  background: #f1f4ef;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.markdown-message img {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 0.85rem 0;
+  object-fit: contain;
+  background: #fff;
+}
+
+.markdown-message .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2rem 0;
+}
+
+.markdown-message .mermaid-diagram {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(252, 253, 250, 0.95), rgba(246, 248, 243, 0.95));
+  padding: 12px;
+}
+
+.markdown-message .mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.mermaid-error {
+  border-color: rgba(238, 94, 80, 0.24) !important;
+  background: rgba(255, 242, 240, 0.9) !important;
+}
+
 .message-bubble.tool {
   border: 1px solid rgba(199, 119, 28, 0.18);
   background: rgba(255, 248, 235, 0.84);

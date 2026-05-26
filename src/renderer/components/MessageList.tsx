@@ -1,8 +1,17 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useChatStore } from '../store/chat';
 import type { Message } from '../store/chat';
+import { MarkdownMessage } from './MarkdownMessage';
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  copied,
+  onCopy,
+}: {
+  message: Message;
+  copied: boolean;
+  onCopy: (message: Message) => void;
+}) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -31,9 +40,24 @@ function MessageBubble({ message }: { message: Message }) {
 
   return (
     <div className="flex justify-start">
-      <div className="message-bubble assistant whitespace-pre-wrap">
-        {message.content}
-        {message.isStreaming && <span className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--accent)] align-middle" />}
+      <div className="message-bubble assistant">
+        <div className="assistant-message-header">
+          <span className="assistant-message-label">Kimi</span>
+          <button
+            className={`copy-response-button ${copied ? 'copied' : ''}`}
+            type="button"
+            aria-label="复制 AI 回复"
+            title="复制 AI 回复"
+            onClick={() => onCopy(message)}
+          >
+            <span className="copy-response-icon" aria-hidden="true" />
+            <span>{copied ? '已复制' : '复制'}</span>
+          </button>
+        </div>
+        <div className="markdown-message">
+          <MarkdownMessage content={message.content} isStreaming={message.isStreaming} />
+          {message.isStreaming && <span className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--accent)] align-middle" />}
+        </div>
       </div>
     </div>
   );
@@ -53,10 +77,21 @@ function statusLabel(status: string): string {
 export function MessageList({ isLoading }: { isLoading: boolean }) {
   const messages = useChatStore((s) => s.messages);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  async function copyMessage(message: Message) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId((current) => (current === message.id ? null : current)), 1600);
+    } catch {
+      setCopiedMessageId(null);
+    }
+  }
 
   if (messages.length === 0) {
     return (
@@ -81,7 +116,12 @@ export function MessageList({ isLoading }: { isLoading: boolean }) {
   return (
     <div className="chat-scroll flex-1 space-y-4 overflow-y-auto px-6 py-8">
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          copied={copiedMessageId === msg.id}
+          onCopy={copyMessage}
+        />
       ))}
       <div ref={bottomRef} />
     </div>

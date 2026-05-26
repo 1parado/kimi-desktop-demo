@@ -13,6 +13,7 @@ const MAX_PREVIEW_FILE_BYTES = 1024 * 1024;
 let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
 let activeSessionUnsubscribe: (() => void) | undefined;
+let activeSessionChangedPaths = new Set<string>();
 let targetWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
 let requestCounter = 0;
@@ -109,7 +110,9 @@ function waitForRendererResponse<TResponse>(
 
 function attachSession(session: Session): void {
   activeSessionUnsubscribe?.();
+  activeSessionChangedPaths = new Set();
   activeSessionUnsubscribe = session.onEvent((event: unknown) => {
+    trackSessionFileChange(event);
     sendToRenderer(IPC.AGENT_EVENT, event);
   });
 
@@ -134,6 +137,34 @@ function attachSession(session: Session): void {
 
   activeSession = session;
   selectedWorkDir = session.workDir;
+}
+
+function trackSessionFileChange(event: unknown): void {
+  if (!isRecord(event) || event.type !== 'tool.call.started') return;
+
+  const display = isRecord(event.display) ? event.display : {};
+  const args = isRecord(event.args) ? event.args : {};
+  const toolName = typeof event.name === 'string' ? event.name : '';
+  const path = stringValue(display.path) ?? stringValue(args.path) ?? stringValue(args.file_path);
+
+  if (!path) return;
+
+  if (display.kind === 'diff') {
+    activeSessionChangedPaths.add(path);
+    return;
+  }
+
+  if (display.kind === 'file_io') {
+    const operation = stringValue(display.operation);
+    if (operation === 'write' || operation === 'edit') {
+      activeSessionChangedPaths.add(path);
+    }
+    return;
+  }
+
+  if (toolName === 'Write' || toolName === 'Edit' || toolName === 'StrReplace') {
+    activeSessionChangedPaths.add(path);
+  }
 }
 
 function normalizePermission(value: unknown): PermissionMode {
@@ -334,13 +365,21 @@ async function selectPreviewFile(): Promise<PreviewFileResult | null> {
 }
 
 async function getGitDiffPreview(): Promise<PreviewDiffResult> {
+  const changedPaths = Array.from(activeSessionChangedPaths);
+  if (changedPaths.length === 0) {
+    return {
+      workDir: selectedWorkDir,
+      content: '',
+    };
+  }
+
   try {
-    const { stdout } = await execFileAsync('git', ['-C', selectedWorkDir, 'diff', '--no-ext-diff', '--'], {
+    const { stdout } = await execFileAsync('git', ['-C', selectedWorkDir, 'diff', '--no-ext-diff', '--', ...changedPaths], {
       maxBuffer: 1024 * 1024 * 8,
     });
     return {
       workDir: selectedWorkDir,
-      content: stdout.trim().length > 0 ? stdout : '当前工作区没有未提交的 diff。',
+      content: stdout.trim().length > 0 ? stdout : '',
     };
   } catch (error) {
     return {
@@ -433,4 +472,8 @@ function formatToolCalls(toolCalls: readonly unknown[]): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
