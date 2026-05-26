@@ -14,6 +14,10 @@ let selectedWorkDir = process.cwd();
 type PermissionMode = 'manual' | 'yolo' | 'auto';
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+type PromptInputPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; imageUrl: { url: string; id?: string } };
+
 interface RuntimeSettings {
   workDir: string;
   models: string[];
@@ -245,7 +249,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     return { id: session.id, workDir: session.workDir, messages: replayMessages(session) };
   });
 
-  ipcMain.handle(IPC.SESSION_PROMPT, async (_event, input: string) => {
+  ipcMain.handle(IPC.SESSION_PROMPT, async (_event, input: string | PromptInputPart[]) => {
     if (!activeSession) throw new Error('No active session');
     await activeSession.prompt(input);
   });

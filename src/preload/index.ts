@@ -36,6 +36,18 @@ export interface ResumeSessionResult {
   messages: ChatMessageSnapshot[];
 }
 
+export interface PromptTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface PromptImagePart {
+  type: 'image_url';
+  imageUrl: { url: string; id?: string };
+}
+
+export type PromptInputPart = PromptTextPart | PromptImagePart;
+
 export interface KimiAPI {
   getDefaultWorkDir(): Promise<string>;
   selectWorkDir(): Promise<RuntimeSettings | null>;
@@ -44,7 +56,7 @@ export interface KimiAPI {
   updateRuntimeSettings(input: { model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<RuntimeSettings>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
   resumeSession(id: string): Promise<ResumeSessionResult>;
-  prompt(input: string): Promise<void>;
+  prompt(input: string | PromptInputPart[]): Promise<void>;
   cancel(): Promise<void>;
   listSessions(workDir: string): Promise<SessionSummary[]>;
   setModel(model: string): Promise<void>;

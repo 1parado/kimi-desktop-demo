@@ -440,6 +440,71 @@ textarea:focus-visible {
     0 0 0 4px rgba(117, 201, 67, 0.08);
 }
 
+.attachment-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(244, 248, 239, 0.76);
+  padding: 10px 12px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  max-width: min(100%, 320px);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 5px 7px 5px 6px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  box-shadow: 0 10px 26px rgba(36, 45, 38, 0.06);
+}
+
+.attachment-chip.image {
+  border-color: rgba(117, 201, 67, 0.28);
+  background: rgba(248, 255, 243, 0.92);
+}
+
+.attachment-icon {
+  display: inline-grid;
+  min-width: 34px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef8e8;
+  color: var(--kimi-green-strong);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.attachment-size {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.attachment-remove {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.attachment-remove:hover {
+  background: rgba(238, 94, 80, 0.1);
+  color: #b4382c;
+}
+
 .composer-toolbar,
 .workspace-strip {
   display: flex;
@@ -461,6 +526,15 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 24px;
   line-height: 1;
+}
+
+.attach-action {
+  transition: 150ms ease;
+}
+
+.attach-action:hover {
+  background: rgba(117, 201, 67, 0.12);
+  color: var(--kimi-green-strong);
 }
 
 .permission-pill {

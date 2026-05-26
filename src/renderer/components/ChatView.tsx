@@ -2,6 +2,7 @@ import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 import { ApprovalDialog } from './ApprovalDialog';
 import { useAgent } from '../hooks/useAgent';
+import type { SendMessageInput } from '../hooks/useAgent';
 
 const tools = [
   { name: '文件', description: '浏览项目文件', glyph: 'F' },
@@ -11,6 +12,7 @@ const tools = [
 
 export function ChatView() {
   const { sendMessage, cancel, isLoading } = useAgent();
+  const handleSend = (input: SendMessageInput) => void sendMessage(input);
 
   return (
     <div className="desktop-stage flex h-full min-w-0 flex-col">
@@ -32,7 +34,7 @@ export function ChatView() {
       <div className="flex min-h-0 flex-1">
         <section className="conversation-plane min-w-0 flex-1">
           <MessageList isLoading={isLoading} />
-          <InputArea onSend={sendMessage} onCancel={cancel} isLoading={isLoading} />
+          <InputArea onSend={handleSend} onCancel={cancel} isLoading={isLoading} />
         </section>
 
         <aside className="tool-dock hidden w-[360px] shrink-0 items-center justify-center px-6 xl:flex">
