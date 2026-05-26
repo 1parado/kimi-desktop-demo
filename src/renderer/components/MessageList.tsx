@@ -14,10 +14,15 @@ function MessageBubble({ message }: { message: Message }) {
   }
 
   if (message.role === 'tool') {
+    const status = message.toolStatus ?? 'completed';
     return (
       <div className="flex justify-start">
-        <div className="message-bubble tool">
-          <div className="mb-1 font-mono text-[11px] uppercase text-[var(--warning)]">{message.toolName}</div>
+        <div className={`message-bubble tool ${status}`}>
+          <div className="mb-2 flex items-center gap-2">
+            <span className={`tool-status-dot ${status}`} />
+            <div className="font-mono text-[11px] uppercase text-[var(--warning)]">{message.toolName}</div>
+            <span className="tool-status-label">{statusLabel(status)}</span>
+          </div>
           <div className="leading-5 text-[var(--ink-muted)]">{message.content}</div>
         </div>
       </div>
@@ -32,6 +37,17 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
     </div>
   );
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'running':
+      return '运行中';
+    case 'failed':
+      return '失败';
+    default:
+      return '完成';
+  }
 }
 
 export function MessageList({ isLoading }: { isLoading: boolean }) {

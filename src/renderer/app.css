@@ -151,6 +151,11 @@ textarea:focus-visible {
   background: rgba(255, 255, 255, 0.68);
 }
 
+.thread-row.active {
+  color: var(--ink);
+  background: rgba(117, 201, 67, 0.14);
+}
+
 .nav-dot {
   width: 13px;
   height: 13px;
@@ -166,6 +171,43 @@ textarea:focus-visible {
   font-size: 13px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-row .thread-row {
+  min-width: 0;
+  flex: 1;
+}
+
+.pin-button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-soft);
+  font-size: 10px;
+  line-height: 1;
+  transition: 150ms ease;
+}
+
+.session-row:hover .pin-button,
+.pin-button.active {
+  color: var(--kimi-green-strong);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pin-button:hover {
+  color: var(--ink);
+  background: #fff;
 }
 
 .thread-row.strong {
@@ -184,10 +226,22 @@ textarea:focus-visible {
 
 .project-title {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 6px;
   color: var(--ink-muted);
   font-size: 13px;
+  text-align: left;
+}
+
+.project-button:hover,
+.project-button.active {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .folder-glyph {
@@ -428,7 +482,7 @@ textarea:focus-visible {
 }
 
 .model-badge,
-.model-select {
+.control-select {
   height: 28px;
   border: 0;
   border-radius: 8px;
@@ -438,7 +492,27 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.control-select {
+  max-width: 184px;
+  appearance: none;
+  cursor: pointer;
+  outline: 0;
+}
+
+.permission-select {
+  max-width: 120px;
+  background: transparent;
+  padding: 0;
+  color: var(--kimi-orange);
+  font-weight: 700;
+}
+
 .model-select {
+  min-width: 94px;
+}
+
+.thinking-select {
+  width: 64px;
   background: transparent;
   color: var(--ink);
 }
@@ -478,13 +552,16 @@ textarea:focus-visible {
 
 .workspace-strip {
   height: 44px;
+  width: 100%;
   justify-content: flex-start;
   gap: 8px;
+  border: 0;
   border-top: 1px solid var(--line);
   background: #f4f5f2;
   padding: 0 16px;
   color: var(--muted);
   font-size: 13px;
+  text-align: left;
 }
 
 .chevron {
@@ -555,6 +632,175 @@ textarea:focus-visible {
   border: 1px solid rgba(199, 119, 28, 0.18);
   background: rgba(255, 248, 235, 0.84);
   font-size: 12px;
+}
+
+.message-bubble.tool.running {
+  border-color: rgba(117, 201, 67, 0.28);
+  background: rgba(246, 255, 239, 0.9);
+}
+
+.message-bubble.tool.failed {
+  border-color: rgba(238, 94, 80, 0.24);
+  background: rgba(255, 242, 240, 0.9);
+}
+
+.tool-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--kimi-green);
+}
+
+.tool-status-dot.running {
+  animation: tool-pulse 1.1s ease-in-out infinite;
+}
+
+.tool-status-dot.failed {
+  background: #ee5e50;
+}
+
+.tool-status-label {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.approval-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(31, 38, 33, 0.18);
+  padding: 24px;
+  backdrop-filter: blur(10px);
+}
+
+.approval-dialog {
+  width: min(520px, 100%);
+  border: 1px solid rgba(36, 45, 38, 0.12);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 251, 247, 0.98)),
+    #fff;
+  box-shadow: 0 34px 96px rgba(30, 38, 33, 0.22);
+}
+
+.approval-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  padding: 20px 22px 16px;
+}
+
+.approval-eyebrow {
+  margin: 0 0 5px;
+  color: var(--kimi-orange);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.approval-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.approval-badge {
+  border-radius: 999px;
+  background: #edf7e8;
+  padding: 5px 9px;
+  color: var(--kimi-green-strong);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.approval-body {
+  padding: 18px 22px 4px;
+}
+
+.approval-action {
+  margin: 0 0 12px;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.approval-summary,
+.approval-detail {
+  overflow: auto;
+  max-height: 190px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f6f7f3;
+  padding: 12px;
+  color: var(--ink);
+  font-family: "Cascadia Code", "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.approval-detail {
+  max-height: 120px;
+  color: var(--ink-muted);
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 22px 22px;
+}
+
+.approval-button {
+  min-width: 88px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 0 13px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: 160ms ease;
+}
+
+.approval-button.ghost {
+  border-color: rgba(238, 94, 80, 0.18);
+  background: rgba(238, 94, 80, 0.08);
+  color: #b4382c;
+}
+
+.approval-button.secondary {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.approval-button.primary {
+  background: var(--kimi-green);
+  color: #17320f;
+}
+
+.approval-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(30, 38, 33, 0.12);
+}
+
+@keyframes tool-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(117, 201, 67, 0.24);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(117, 201, 67, 0);
+  }
 }
 
 .chat-scroll {
