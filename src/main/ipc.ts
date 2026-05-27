@@ -1,11 +1,20 @@
 import { execFile } from 'node:child_process';
-import { open, stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { createHmac, randomBytes } from 'node:crypto';
+import { mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
+import { app, dialog, ipcMain, net, shell, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
+import type {
+  MessagingProviderId,
+  MessagingSettings,
+  SaveMessagingSettingsResult,
+  TestMessagingInput,
+  TestMessagingResult,
+} from '../shared/messaging';
 import {
   BUILTIN_SLASH_COMMANDS,
   findSlashCommand,
@@ -21,6 +30,27 @@ const DEFAULT_CONFIG_MODEL = 'kimi-k2.6';
 const DEFAULT_MODEL_CONTEXT_SIZE = 262144;
 const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:kimi-code';
 const FEEDBACK_ISSUE_URL = 'https://github.com/MoonshotAI/kimi-code/issues';
+const MESSAGING_SETTINGS_FILE = 'messaging-integrations.json';
+const TELEGRAM_CONTROL_DEFAULT_PORT = 8787;
+const TELEGRAM_MESSAGE_LIMIT = 3900;
+const DEFAULT_MESSAGING_SETTINGS: PrivateMessagingSettings = {
+  notifyOnTurnEnd: true,
+  notifyOnError: true,
+  telegram: {
+    enabled: false,
+    controlEnabled: false,
+    chatId: '',
+    botToken: '',
+    webhookBaseUrl: '',
+    webhookSecret: '',
+    localWebhookPort: TELEGRAM_CONTROL_DEFAULT_PORT,
+  },
+  feishu: {
+    enabled: false,
+    webhookUrl: '',
+    secret: '',
+  },
+};
 
 let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
@@ -30,6 +60,15 @@ let targetWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
 let requestCounter = 0;
 let selectedWorkDir = process.cwd();
+let telegramControlServer: Server | undefined;
+let telegramControlServerPort: number | undefined;
+let telegramControlPromptQueue = Promise.resolve();
+let telegramTurnCapture: {
+  chatId: string;
+  chunks: string[];
+  resolve: () => void;
+  reject: (error: Error) => void;
+} | undefined;
 
 type PermissionMode = 'manual' | 'yolo' | 'auto';
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -83,6 +122,25 @@ interface SkillSummaryLike {
   name?: unknown;
   description?: unknown;
   type?: unknown;
+}
+
+interface PrivateMessagingSettings {
+  notifyOnTurnEnd: boolean;
+  notifyOnError: boolean;
+  telegram: {
+    enabled: boolean;
+    controlEnabled: boolean;
+    chatId: string;
+    botToken: string;
+    webhookBaseUrl: string;
+    webhookSecret: string;
+    localWebhookPort: number;
+  };
+  feishu: {
+    enabled: boolean;
+    webhookUrl: string;
+    secret: string;
+  };
 }
 
 interface ReplayContextMessage {
@@ -149,6 +207,8 @@ function attachSession(session: Session): void {
   activeSessionChangedPaths = new Set();
   activeSessionUnsubscribe = session.onEvent((event: unknown) => {
     trackSessionFileChange(event);
+    void captureTelegramControlEvent(event).catch(() => undefined);
+    void notifyMessagingEvent(event).catch(() => undefined);
     sendToRenderer(IPC.AGENT_EVENT, event);
   });
 
@@ -330,6 +390,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   targetWindow = win;
   if (handlersRegistered) return;
   handlersRegistered = true;
+  void syncTelegramControlFromSettings().catch(() => undefined);
+  app.on('before-quit', () => {
+    void stopTelegramControlServer();
+  });
 
   ipcMain.handle(IPC.SYSTEM_DEFAULT_WORKDIR, async () => selectedWorkDir);
 
@@ -404,6 +468,22 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     return h.configPath;
   });
 
+  ipcMain.handle(IPC.MESSAGING_GET, async () => getMessagingSettings());
+
+  ipcMain.handle(IPC.MESSAGING_SAVE, async (_event, input: MessagingSettings): Promise<SaveMessagingSettingsResult> => {
+    const settings = await saveMessagingSettings(input);
+    return { settings };
+  });
+
+  ipcMain.handle(IPC.MESSAGING_TEST, async (_event, input: TestMessagingInput): Promise<TestMessagingResult> => {
+    const provider = normalizeMessagingProvider(input.provider);
+    const message = typeof input.message === 'string' && input.message.trim().length > 0
+      ? input.message.trim()
+      : 'Kimi Desktop messaging integration test.';
+    await sendMessagingProvider(provider, message);
+    return { ok: true, message: '测试消息已发送' };
+  });
+
   ipcMain.handle(IPC.SESSION_CREATE, async (_event, options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }) => {
     const h = getHarness();
     await h.ensureConfigFile();
@@ -472,6 +552,543 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
   ipcMain.handle(IPC.PREVIEW_SELECT_FILE, async () => selectPreviewFile());
   ipcMain.handle(IPC.PREVIEW_GIT_DIFF, async () => getGitDiffPreview());
+}
+
+function messagingSettingsPath(): string {
+  return join(app.getPath('userData'), MESSAGING_SETTINGS_FILE);
+}
+
+async function readPrivateMessagingSettings(): Promise<PrivateMessagingSettings> {
+  try {
+    const raw = await readFile(messagingSettingsPath(), 'utf-8');
+    return normalizePrivateMessagingSettings(JSON.parse(raw));
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return cloneDefaultMessagingSettings();
+    }
+    throw error;
+  }
+}
+
+async function writePrivateMessagingSettings(settings: PrivateMessagingSettings): Promise<void> {
+  const path = messagingSettingsPath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8');
+}
+
+async function getMessagingSettings(): Promise<MessagingSettings> {
+  return toPublicMessagingSettings(await readPrivateMessagingSettings());
+}
+
+async function saveMessagingSettings(input: MessagingSettings): Promise<MessagingSettings> {
+  const previous = await readPrivateMessagingSettings();
+  const next: PrivateMessagingSettings = {
+    notifyOnTurnEnd: input.notifyOnTurnEnd !== false,
+    notifyOnError: input.notifyOnError !== false,
+    telegram: {
+      enabled: input.telegram.enabled === true,
+      controlEnabled: input.telegram.controlEnabled === true,
+      chatId: input.telegram.chatId.trim(),
+      botToken: input.telegram.clearBotToken === true
+        ? ''
+        : normalizeOptionalSecret(input.telegram.botToken) || previous.telegram.botToken,
+      webhookBaseUrl: normalizeWebhookBaseUrl(input.telegram.webhookBaseUrl),
+      webhookSecret: previous.telegram.webhookSecret || randomBytes(18).toString('hex'),
+      localWebhookPort: normalizeWebhookPort(input.telegram.localWebhookPort),
+    },
+    feishu: {
+      enabled: input.feishu.enabled === true,
+      webhookUrl: input.feishu.clearWebhookUrl === true
+        ? ''
+        : normalizeOptionalSecret(input.feishu.webhookUrl) || previous.feishu.webhookUrl,
+      secret: input.feishu.clearSecret === true
+        ? ''
+        : normalizeOptionalSecret(input.feishu.secret) || previous.feishu.secret,
+    },
+  };
+
+  validateMessagingSettings(next);
+  await writePrivateMessagingSettings(next);
+  await syncTelegramControlSettings(previous, next);
+  return toPublicMessagingSettings(next);
+}
+
+function validateMessagingSettings(settings: PrivateMessagingSettings): void {
+  if (settings.telegram.enabled || settings.telegram.controlEnabled) {
+    if (!settings.telegram.botToken) throw new Error('Telegram Bot Token is required when Telegram is enabled.');
+    if (!settings.telegram.chatId) throw new Error('Telegram Chat ID is required when Telegram is enabled.');
+  }
+
+  if (settings.telegram.controlEnabled && !settings.telegram.webhookBaseUrl) {
+    throw new Error('ngrok public URL is required when Telegram remote control is enabled.');
+  }
+
+  if (settings.feishu.enabled && !settings.feishu.webhookUrl) {
+    throw new Error('Feishu Webhook URL is required when Feishu is enabled.');
+  }
+}
+
+function toPublicMessagingSettings(settings: PrivateMessagingSettings): MessagingSettings {
+  return {
+    notifyOnTurnEnd: settings.notifyOnTurnEnd,
+    notifyOnError: settings.notifyOnError,
+    telegram: {
+      enabled: settings.telegram.enabled,
+      controlEnabled: settings.telegram.controlEnabled,
+      chatId: settings.telegram.chatId,
+      botToken: '',
+      hasBotToken: settings.telegram.botToken.length > 0,
+      clearBotToken: false,
+      webhookBaseUrl: settings.telegram.webhookBaseUrl,
+      localWebhookPort: settings.telegram.localWebhookPort,
+    },
+    feishu: {
+      enabled: settings.feishu.enabled,
+      webhookUrl: '',
+      hasWebhookUrl: settings.feishu.webhookUrl.length > 0,
+      clearWebhookUrl: false,
+      secret: '',
+      hasSecret: settings.feishu.secret.length > 0,
+      clearSecret: false,
+    },
+  };
+}
+
+function normalizePrivateMessagingSettings(value: unknown): PrivateMessagingSettings {
+  const record = isRecord(value) ? value : {};
+  const telegram = isRecord(record.telegram) ? record.telegram : {};
+  const feishu = isRecord(record.feishu) ? record.feishu : {};
+  return {
+    notifyOnTurnEnd: record.notifyOnTurnEnd !== false,
+    notifyOnError: record.notifyOnError !== false,
+    telegram: {
+      enabled: telegram.enabled === true,
+      controlEnabled: telegram.controlEnabled === true,
+      chatId: stringValue(telegram.chatId) ?? '',
+      botToken: stringValue(telegram.botToken) ?? '',
+      webhookBaseUrl: normalizeWebhookBaseUrl(telegram.webhookBaseUrl),
+      webhookSecret: stringValue(telegram.webhookSecret) ?? '',
+      localWebhookPort: normalizeWebhookPort(telegram.localWebhookPort),
+    },
+    feishu: {
+      enabled: feishu.enabled === true,
+      webhookUrl: stringValue(feishu.webhookUrl) ?? '',
+      secret: stringValue(feishu.secret) ?? '',
+    },
+  };
+}
+
+function cloneDefaultMessagingSettings(): PrivateMessagingSettings {
+  return {
+    notifyOnTurnEnd: DEFAULT_MESSAGING_SETTINGS.notifyOnTurnEnd,
+    notifyOnError: DEFAULT_MESSAGING_SETTINGS.notifyOnError,
+    telegram: { ...DEFAULT_MESSAGING_SETTINGS.telegram },
+    feishu: { ...DEFAULT_MESSAGING_SETTINGS.feishu },
+  };
+}
+
+function normalizeOptionalSecret(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeWebhookBaseUrl(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\/+$/, '');
+}
+
+function normalizeWebhookPort(value: unknown): number {
+  const port = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : TELEGRAM_CONTROL_DEFAULT_PORT;
+}
+
+function normalizeMessagingProvider(value: unknown): MessagingProviderId {
+  if (value === 'telegram' || value === 'feishu') return value;
+  throw new Error('Unknown messaging provider.');
+}
+
+async function syncTelegramControlFromSettings(): Promise<void> {
+  await syncTelegramControlSettings(undefined, await readPrivateMessagingSettings());
+}
+
+async function syncTelegramControlSettings(
+  previous: PrivateMessagingSettings | undefined,
+  next: PrivateMessagingSettings,
+): Promise<void> {
+  if (previous?.telegram.controlEnabled && !next.telegram.controlEnabled && previous.telegram.botToken) {
+    await deleteTelegramWebhook(previous.telegram).catch(() => undefined);
+  }
+
+  if (!next.telegram.controlEnabled) {
+    await stopTelegramControlServer();
+    return;
+  }
+
+  await startTelegramControlServer(next.telegram.localWebhookPort);
+  await setTelegramWebhook(next.telegram);
+}
+
+async function startTelegramControlServer(port: number): Promise<void> {
+  if (telegramControlServer && telegramControlServerPort === port) return;
+  await stopTelegramControlServer();
+
+  const server = createServer((request, response) => {
+    void handleTelegramControlRequest(request, response).catch((error) => {
+      writeJson(response, 500, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+
+  telegramControlServer = server;
+  telegramControlServerPort = port;
+}
+
+async function stopTelegramControlServer(): Promise<void> {
+  if (!telegramControlServer) return;
+  const server = telegramControlServer;
+  telegramControlServer = undefined;
+  telegramControlServerPort = undefined;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function handleTelegramControlRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  if (request.method === 'GET' && request.url === '/telegram/health') {
+    writeJson(response, 200, { ok: true });
+    return;
+  }
+
+  const match = request.url?.match(/^\/telegram\/webhook\/([a-f0-9]+)$/);
+  if (request.method !== 'POST' || !match) {
+    writeJson(response, 404, { ok: false });
+    return;
+  }
+
+  const settings = await readPrivateMessagingSettings();
+  if (!settings.telegram.controlEnabled || match[1] !== settings.telegram.webhookSecret) {
+    writeJson(response, 403, { ok: false });
+    return;
+  }
+
+  const body = await readRequestJson(request);
+  void handleTelegramWebhookUpdate(settings, body).catch((error) => {
+    void sendTelegramMessage(settings.telegram, `Telegram 控制处理失败：${error instanceof Error ? error.message : String(error)}`);
+  });
+  writeJson(response, 200, { ok: true });
+}
+
+async function readRequestJson(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 1024 * 1024) throw new Error('Request body is too large.');
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return undefined;
+  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+}
+
+function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
+  response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(body));
+}
+
+async function setTelegramWebhook(settings: PrivateMessagingSettings['telegram']): Promise<void> {
+  const response = await messagingFetch('Telegram', `https://api.telegram.org/bot${settings.botToken}/setWebhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      url: telegramWebhookUrl(settings),
+      allowed_updates: ['message'],
+      drop_pending_updates: true,
+    }),
+  });
+  const body = await safeReadJson(response);
+  if (!response.ok || (isRecord(body) && body.ok === false)) {
+    throw new Error(`Telegram webhook setup failed: ${formatRemoteError(response, body)}`);
+  }
+}
+
+async function deleteTelegramWebhook(settings: PrivateMessagingSettings['telegram']): Promise<void> {
+  const response = await messagingFetch('Telegram', `https://api.telegram.org/bot${settings.botToken}/deleteWebhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ drop_pending_updates: true }),
+  });
+  const body = await safeReadJson(response);
+  if (!response.ok || (isRecord(body) && body.ok === false)) {
+    throw new Error(`Telegram webhook delete failed: ${formatRemoteError(response, body)}`);
+  }
+}
+
+function telegramWebhookUrl(settings: PrivateMessagingSettings['telegram']): string {
+  return `${settings.webhookBaseUrl}/telegram/webhook/${settings.webhookSecret}`;
+}
+
+async function handleTelegramWebhookUpdate(settings: PrivateMessagingSettings, update: unknown): Promise<void> {
+  const message = extractTelegramMessage(update);
+  if (!message) return;
+  if (message.chatId !== settings.telegram.chatId) {
+    await sendTelegramMessage(settings.telegram, '这个 Chat ID 未被授权控制 Kimi Desktop。');
+    return;
+  }
+  enqueueTelegramControlMessage(message.text, message.chatId);
+}
+
+function extractTelegramMessage(update: unknown): { chatId: string; text: string } | undefined {
+  if (!isRecord(update)) return undefined;
+  const message = isRecord(update.message) ? update.message : undefined;
+  if (!message) return undefined;
+  const chat = isRecord(message.chat) ? message.chat : undefined;
+  const text = stringValue(message.text);
+  if (!chat || !text) return undefined;
+  const id = chat.id;
+  if (typeof id !== 'number' && typeof id !== 'string') return undefined;
+  return { chatId: String(id), text: text.trim() };
+}
+
+function enqueueTelegramControlMessage(text: string, chatId: string): void {
+  telegramControlPromptQueue = telegramControlPromptQueue
+    .then(() => handleTelegramControlText(text, chatId))
+    .catch(async (error) => {
+      const settings = await readPrivateMessagingSettings();
+      await sendTelegramMessage(settings.telegram, `Kimi Desktop 处理失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+}
+
+async function handleTelegramControlText(text: string, chatId: string): Promise<void> {
+  const settings = await readPrivateMessagingSettings();
+  if (text === '/start' || text === '/help') {
+    await sendTelegramMessage(settings.telegram, [
+      'Kimi Desktop 已连接。',
+      '直接发送消息即可让当前会话执行。',
+      '可用命令：/status、/cancel、/new、/sessions、/usage。',
+    ].join('\n'));
+    return;
+  }
+
+  if (text === '/cancel') {
+    await activeSession?.cancel();
+    await sendTelegramMessage(settings.telegram, '已请求取消当前任务。');
+    return;
+  }
+
+  const commandInput = parseSlashInput(text) === null ? undefined : text;
+  if (commandInput !== undefined) {
+    const result = await executeSlashCommand(commandInput);
+    if (result.handled) {
+      if (result.message) await sendTelegramMessage(settings.telegram, result.message);
+      return;
+    }
+  }
+
+  await ensureActiveSessionForTelegram();
+  if (!activeSession) throw new Error('No active session');
+  await sendTelegramMessage(settings.telegram, '已收到，正在交给 Kimi 处理。');
+  const done = waitForTelegramTurn(chatId);
+  try {
+    await activeSession.prompt(text);
+    await done;
+  } catch (error) {
+    clearTelegramTurnCapture(error);
+    throw error;
+  }
+}
+
+async function ensureActiveSessionForTelegram(): Promise<void> {
+  if (activeSession) return;
+  const h = getHarness();
+  await h.ensureConfigFile();
+  const config = await h.getConfig();
+  const model = config.defaultModel;
+  if (!model) throw new Error('No model configured. Set default_model in config.toml.');
+  const session = await h.createSession({
+    workDir: selectedWorkDir,
+    model,
+    thinking: normalizeThinking(config.thinking?.effort ?? (config.defaultThinking === false ? 'off' : 'high')),
+    permission: normalizePermission(config.defaultPermissionMode),
+  });
+  attachSession(session);
+}
+
+function waitForTelegramTurn(chatId: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    telegramTurnCapture = { chatId, chunks: [], resolve, reject };
+  });
+}
+
+function clearTelegramTurnCapture(error: unknown): void {
+  if (!telegramTurnCapture) return;
+  const capture = telegramTurnCapture;
+  telegramTurnCapture = undefined;
+  capture.reject(error instanceof Error ? error : new Error(String(error)));
+}
+
+async function captureTelegramControlEvent(event: unknown): Promise<void> {
+  if (!telegramTurnCapture || !isRecord(event)) return;
+
+  if (event.type === 'assistant.delta') {
+    const delta = stringValue(event.delta);
+    if (delta) telegramTurnCapture.chunks.push(delta);
+    return;
+  }
+
+  if (event.type === 'error') {
+    const capture = telegramTurnCapture;
+    telegramTurnCapture = undefined;
+    await sendTelegramMessage((await readPrivateMessagingSettings()).telegram, `Kimi Desktop 出错：${stringValue(event.message) ?? 'Unknown error'}`);
+    capture.resolve();
+    return;
+  }
+
+  if (event.type === 'turn.ended') {
+    const capture = telegramTurnCapture;
+    telegramTurnCapture = undefined;
+    const output = capture.chunks.join('').trim();
+    if (output.length > 0) {
+      await sendTelegramTextChunks((await readPrivateMessagingSettings()).telegram, output);
+    } else {
+      await sendTelegramMessage((await readPrivateMessagingSettings()).telegram, '任务已结束，但没有生成文本回复。');
+    }
+    capture.resolve();
+  }
+}
+
+async function sendTelegramTextChunks(settings: PrivateMessagingSettings['telegram'], text: string): Promise<void> {
+  for (let index = 0; index < text.length; index += TELEGRAM_MESSAGE_LIMIT) {
+    await sendTelegramMessage(settings, text.slice(index, index + TELEGRAM_MESSAGE_LIMIT));
+  }
+}
+
+async function notifyMessagingEvent(event: unknown): Promise<void> {
+  if (!isRecord(event)) return;
+  if (event.type !== 'turn.ended' && event.type !== 'error') return;
+
+  const settings = await readPrivateMessagingSettings();
+  if (event.type === 'turn.ended' && !settings.notifyOnTurnEnd) return;
+  if (event.type === 'error' && !settings.notifyOnError) return;
+
+  const message = event.type === 'turn.ended'
+    ? formatMessagingNotification('Kimi Desktop task complete')
+    : formatMessagingNotification(`Kimi Desktop error: ${stringValue(event.message) ?? 'Unknown error'}`);
+  await sendEnabledMessagingProviders(settings, message);
+}
+
+function formatMessagingNotification(title: string): string {
+  return [
+    title,
+    activeSession ? `Session: ${activeSession.id}` : undefined,
+    selectedWorkDir ? `Workspace: ${selectedWorkDir}` : undefined,
+  ].filter(Boolean).join('\n');
+}
+
+async function sendMessagingProvider(provider: MessagingProviderId, message: string): Promise<void> {
+  const settings = await readPrivateMessagingSettings();
+  if (provider === 'telegram') {
+    await sendTelegramMessage(settings.telegram, message);
+    return;
+  }
+  await sendFeishuMessage(settings.feishu, message);
+}
+
+async function sendEnabledMessagingProviders(settings: PrivateMessagingSettings, message: string): Promise<void> {
+  await Promise.allSettled([
+    settings.telegram.enabled ? sendTelegramMessage(settings.telegram, message) : Promise.resolve(),
+    settings.feishu.enabled ? sendFeishuMessage(settings.feishu, message) : Promise.resolve(),
+  ]);
+}
+
+async function sendTelegramMessage(settings: PrivateMessagingSettings['telegram'], text: string): Promise<void> {
+  if (!settings.botToken) throw new Error('Telegram Bot Token is not configured.');
+  if (!settings.chatId) throw new Error('Telegram Chat ID is not configured.');
+
+  const response = await messagingFetch('Telegram', `https://api.telegram.org/bot${settings.botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: settings.chatId,
+      text,
+      disable_web_page_preview: true,
+    }),
+  });
+  const body = await safeReadJson(response);
+  if (!response.ok || (isRecord(body) && body.ok === false)) {
+    throw new Error(`Telegram send failed: ${formatRemoteError(response, body)}`);
+  }
+}
+
+async function sendFeishuMessage(settings: PrivateMessagingSettings['feishu'], text: string): Promise<void> {
+  if (!settings.webhookUrl) throw new Error('Feishu Webhook URL is not configured.');
+
+  const payload: Record<string, unknown> = {
+    msg_type: 'text',
+    content: { text },
+  };
+  if (settings.secret) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    payload.timestamp = timestamp;
+    payload.sign = createHmac('sha256', `${timestamp}\n${settings.secret}`).digest('base64');
+  }
+
+  const response = await messagingFetch('Feishu', settings.webhookUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await safeReadJson(response);
+  if (!response.ok || isFeishuError(body)) {
+    throw new Error(`Feishu send failed: ${formatRemoteError(response, body)}`);
+  }
+}
+
+async function messagingFetch(provider: string, url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await net.fetch(url, init);
+  } catch (error) {
+    throw new Error(`${provider} 网络请求失败：无法连接到消息服务。请确认当前网络或系统代理可以访问该服务。${formatErrorCause(error)}`);
+  }
+}
+
+function isFeishuError(body: unknown): boolean {
+  if (!isRecord(body)) return false;
+  const code = body.code ?? body.StatusCode;
+  if (typeof code === 'number') return code !== 0;
+  if (typeof code === 'string') return code !== '0';
+  return false;
+}
+
+async function safeReadJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function formatRemoteError(response: Response, body: unknown): string {
+  if (isRecord(body)) {
+    const message = stringValue(body.description) ?? stringValue(body.msg) ?? stringValue(body.message) ?? stringValue(body.StatusMessage);
+    if (message) return message;
+  }
+  if (typeof body === 'string' && body.length > 0) return body.slice(0, 240);
+  return `${response.status} ${response.statusText}`.trim();
+}
+
+function formatErrorCause(error: unknown): string {
+  if (!(error instanceof Error) || error.message.trim().length === 0) return '';
+  return ` 原始错误：${error.message}`;
 }
 
 async function listSlashCommands(): Promise<SlashCommandInfo[]> {
@@ -1016,6 +1633,10 @@ function formatToolCalls(toolCalls: readonly unknown[]): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNodeError(value: unknown): value is Error & { code: string } {
+  return value instanceof Error && typeof (value as { code?: unknown }).code === 'string';
 }
 
 function stringValue(value: unknown): string | undefined {

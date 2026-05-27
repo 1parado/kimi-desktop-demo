@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useChatStore } from '../store/chat';
 import { useSettingsStore } from '../store/settings';
 import { ConfigSettingsDialog } from './ConfigSettingsDialog';
+import { MessagingIntegrationsDialog } from './MessagingIntegrationsDialog';
 import type { SessionSummary } from '../../preload/index';
 
 interface SidebarProps {
@@ -11,6 +12,7 @@ interface SidebarProps {
 
 export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [messagingOpen, setMessagingOpen] = useState(false);
   const sessionId = useChatStore((s) => s.sessionId);
   const addErrorMessage = useChatStore((s) => s.addErrorMessage);
   const startNewSession = useChatStore((s) => s.startNewSession);
@@ -95,10 +97,22 @@ export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
           <span className="nav-plus" />
           <span>新会话</span>
         </button>
-        {['搜索', '技能', '插件', '自动化'].map((item) => (
-          <button key={item} className="nav-item">
+        <button
+          type="button"
+          className="nav-item"
+          title="接入 Telegram、飞书等即时通讯平台"
+          onClick={() => setMessagingOpen(true)}
+        >
+          <span className="nav-dot nav-dot-message" />
+          <span>即时通讯</span>
+        </button>
+        {[
+          { label: '技能', title: '管理可用技能' },
+          { label: '插件', title: '管理扩展插件' },
+        ].map((item) => (
+          <button key={item.label} className="nav-item" title={item.title}>
             <span className="nav-dot" />
-            <span>{item}</span>
+            <span>{item.label}</span>
           </button>
         ))}
       </nav>
@@ -193,6 +207,7 @@ export function Sidebar({ width, onToggleSidebar }: SidebarProps) {
       </div>
     </aside>
     <ConfigSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    <MessagingIntegrationsDialog open={messagingOpen} onClose={() => setMessagingOpen(false)} />
     </>
   );
 }

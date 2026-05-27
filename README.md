@@ -99,6 +99,81 @@ The composer exposes runtime controls for:
 - Permission mode
 - Workspace directory
 
+## Telegram Integration
+
+Kimi Desktop can send Telegram notifications and, when remote control is
+enabled, accept Telegram messages through a webhook exposed by ngrok.
+
+### Get a Bot Token
+
+1. Open Telegram and talk to `@BotFather`.
+2. Run `/newbot` and follow the prompts.
+3. Copy the bot token from BotFather.
+
+Do not commit the token to the repository. If a token is exposed, revoke it in
+`@BotFather` and generate a new one.
+
+### Get the Chat ID
+
+1. Open the chat with your bot, not `@BotFather`.
+2. Send a message such as `/start` or `hello`.
+3. Open this URL in a browser, replacing `BOT_TOKEN` with your real token:
+
+```text
+https://api.telegram.org/botBOT_TOKEN/getUpdates
+```
+
+4. Find the `chat.id` field in the JSON response:
+
+```json
+{
+  "chat": {
+    "id": 123456789
+  }
+}
+```
+
+Use that value as the Chat ID. Group and channel IDs are often negative, for
+example `-1001234567890`.
+
+If the response is `{"ok":true,"result":[]}`, clear any existing webhook, send
+the bot a new message, and call `getUpdates` again:
+
+```text
+https://api.telegram.org/botBOT_TOKEN/deleteWebhook
+https://api.telegram.org/botBOT_TOKEN/getUpdates
+```
+
+### Enable Notifications
+
+1. Open the Messaging settings in the desktop sidebar.
+2. Enable `Telegram Bot`.
+3. Enter the Bot Token and Chat ID.
+4. Click `测试` to send a test message.
+5. Click `保存`.
+
+### Enable Telegram Remote Control
+
+Telegram Bot API delivers remote commands through HTTPS webhooks. For local
+development, expose the desktop webhook server with ngrok:
+
+```bash
+ngrok http 8787
+```
+
+Copy the HTTPS forwarding URL from ngrok, then in Messaging settings:
+
+1. Enable `允许 Telegram 控制当前会话`.
+2. Paste the ngrok HTTPS URL into `ngrok URL`.
+3. Save the settings.
+4. Send `/help` to the bot from the configured Chat ID.
+
+Only the saved Chat ID is allowed to control the desktop app. Supported starter
+commands include `/help`, `/status`, `/cancel`, `/new`, `/sessions`, and
+`/usage`. Plain text messages are sent to the current Kimi session; if no
+session is active, the app creates one using the current workspace and default
+model configuration.
+
 ## Project Structure
 
 ```text

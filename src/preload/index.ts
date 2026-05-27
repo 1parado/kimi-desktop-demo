@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../shared/ipc-channels';
+import type {
+  MessagingSettings,
+  SaveMessagingSettingsResult,
+  TestMessagingInput,
+  TestMessagingResult,
+} from '../shared/messaging';
 import type { SlashCommandInfo, SlashCommandResult } from '../shared/slash-commands';
 
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
@@ -87,6 +93,9 @@ export interface KimiAPI {
   getConfigModelSettings(): Promise<ConfigModelSettings>;
   saveConfigModelSettings(input: ConfigModelSettings): Promise<SaveConfigModelResult>;
   openConfigFile(): Promise<string>;
+  getMessagingSettings(): Promise<MessagingSettings>;
+  saveMessagingSettings(input: MessagingSettings): Promise<SaveMessagingSettingsResult>;
+  testMessaging(input: TestMessagingInput): Promise<TestMessagingResult>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
   resumeSession(id: string): Promise<ResumeSessionResult>;
   prompt(input: string | PromptInputPart[]): Promise<SlashCommandResult>;
@@ -143,6 +152,15 @@ const api: KimiAPI = {
   },
   openConfigFile() {
     return ipcRenderer.invoke(IPC.CONFIG_OPEN_FILE);
+  },
+  getMessagingSettings() {
+    return ipcRenderer.invoke(IPC.MESSAGING_GET);
+  },
+  saveMessagingSettings(input) {
+    return ipcRenderer.invoke(IPC.MESSAGING_SAVE, input);
+  },
+  testMessaging(input) {
+    return ipcRenderer.invoke(IPC.MESSAGING_TEST, input);
   },
   createSession(options) {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, options);
