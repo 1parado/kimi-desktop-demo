@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../shared/ipc-channels';
+import type { SlashCommandInfo, SlashCommandResult } from '../shared/slash-commands';
 
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
 export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -88,9 +89,10 @@ export interface KimiAPI {
   openConfigFile(): Promise<string>;
   createSession(options: { workDir?: string; model?: string; thinking?: ThinkingLevel; permission?: PermissionMode }): Promise<{ id: string; workDir: string }>;
   resumeSession(id: string): Promise<ResumeSessionResult>;
-  prompt(input: string | PromptInputPart[]): Promise<void>;
+  prompt(input: string | PromptInputPart[]): Promise<SlashCommandResult>;
   cancel(): Promise<void>;
   listSessions(workDir: string): Promise<SessionSummary[]>;
+  listSlashCommands(): Promise<SlashCommandInfo[]>;
   setModel(model: string): Promise<void>;
   setThinking(thinking: ThinkingLevel): Promise<void>;
   setPermission(permission: PermissionMode): Promise<void>;
@@ -156,6 +158,9 @@ const api: KimiAPI = {
   },
   listSessions(workDir) {
     return ipcRenderer.invoke(IPC.SESSION_LIST, workDir);
+  },
+  listSlashCommands() {
+    return ipcRenderer.invoke(IPC.SESSION_SLASH_COMMANDS);
   },
   setModel(model) {
     return ipcRenderer.invoke(IPC.SESSION_SET_MODEL, model);

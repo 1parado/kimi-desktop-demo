@@ -27,9 +27,12 @@ export function useAgent() {
     startToolMessage,
     updateToolMessage,
     finishToolMessage,
+    addToolNotice,
     addErrorMessage,
     setPendingApproval,
     setSessionId,
+    startNewSession,
+    switchSession,
     setLoading,
   } = useChatStore();
   const { workDir, selectedModel, thinking, permission, loadSettings } = useSettingsStore();
@@ -123,12 +126,31 @@ export function useAgent() {
         const sessionWorkDir = workDir || await api.getDefaultWorkDir();
         await createSession(sessionWorkDir);
       }
-      await api.prompt(input.prompt);
+      const result = await api.prompt(input.prompt);
+      if (result.handled) {
+        if (result.session) {
+          const messages = Array.isArray(result.session.messages)
+            ? result.session.messages as any[]
+            : [];
+          if (messages.length > 0) {
+            switchSession(result.session.id, result.session.title ?? result.session.id, messages as any);
+          } else {
+            startNewSession(result.session.id);
+          }
+        }
+        if (result.error) {
+          addErrorMessage(result.error);
+        } else if (result.message) {
+          addToolNotice('Command', result.message);
+        } else if (!result.startsTurn) {
+          setLoading(false);
+        }
+      }
       void loadSettings();
     } catch (error) {
       addErrorMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [sessionId, workDir, addUserMessage, addErrorMessage, setLoading, createSession, loadSettings]);
+  }, [sessionId, workDir, addUserMessage, addToolNotice, addErrorMessage, setLoading, setSessionId, startNewSession, switchSession, createSession, loadSettings]);
 
   const cancel = useCallback(async () => {
     await window.kimiAPI?.cancel();

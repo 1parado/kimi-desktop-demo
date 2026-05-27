@@ -2,15 +2,25 @@ import { execFile } from 'node:child_process';
 import { open, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { promisify } from 'node:util';
-import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
+import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type OpenDialogOptions } from 'electron';
 import { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { IPC } from '../shared/ipc-channels';
+import {
+  BUILTIN_SLASH_COMMANDS,
+  findSlashCommand,
+  parseSlashInput,
+  sortSlashCommands,
+  type SlashCommandInfo,
+  type SlashCommandResult,
+} from '../shared/slash-commands';
 
 const execFileAsync = promisify(execFile);
 const MAX_PREVIEW_FILE_BYTES = 1024 * 1024;
 const DEFAULT_CONFIG_MODEL = 'kimi-k2.6';
 const DEFAULT_MODEL_CONTEXT_SIZE = 262144;
+const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:kimi-code';
+const FEEDBACK_ISSUE_URL = 'https://github.com/MoonshotAI/kimi-code/issues';
 
 let harness: KimiHarness | null = null;
 let activeSession: Session | null = null;
@@ -67,6 +77,12 @@ interface PreviewFileResult {
 interface PreviewDiffResult {
   workDir: string;
   content: string;
+}
+
+interface SkillSummaryLike {
+  name?: unknown;
+  description?: unknown;
+  type?: unknown;
 }
 
 interface ReplayContextMessage {
@@ -416,9 +432,15 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     return { id: session.id, workDir: session.workDir, messages: replayMessages(session) };
   });
 
-  ipcMain.handle(IPC.SESSION_PROMPT, async (_event, input: string | PromptInputPart[]) => {
+  ipcMain.handle(IPC.SESSION_PROMPT, async (_event, input: string | PromptInputPart[]): Promise<SlashCommandResult> => {
     if (!activeSession) throw new Error('No active session');
+    const commandInput = extractSlashCommandText(input);
+    if (commandInput !== undefined) {
+      const result = await executeSlashCommand(commandInput);
+      if (result.handled) return result;
+    }
     await activeSession.prompt(input);
+    return { handled: false, startsTurn: true };
   });
 
   ipcMain.handle(IPC.SESSION_CANCEL, async () => {
@@ -446,8 +468,401 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     return h.listSessions({ workDir });
   });
 
+  ipcMain.handle(IPC.SESSION_SLASH_COMMANDS, async () => listSlashCommands());
+
   ipcMain.handle(IPC.PREVIEW_SELECT_FILE, async () => selectPreviewFile());
   ipcMain.handle(IPC.PREVIEW_GIT_DIFF, async () => getGitDiffPreview());
+}
+
+async function listSlashCommands(): Promise<SlashCommandInfo[]> {
+  const skillCommands = await listSkillSlashCommands();
+  return sortSlashCommands([...BUILTIN_SLASH_COMMANDS, ...skillCommands]);
+}
+
+async function listSkillSlashCommands(): Promise<SlashCommandInfo[]> {
+  if (!activeSession) return [];
+  try {
+    const skills = await activeSession.listSkills() as readonly SkillSummaryLike[];
+    return skills
+      .filter(isUserActivatableSkill)
+      .map((skill: SkillSummaryLike) => ({
+        name: `skill:${String(skill.name)}`,
+        aliases: [],
+        description: typeof skill.description === 'string' ? skill.description : '',
+        priority: 0,
+        availability: 'idle-only' as const,
+        source: 'skill' as const,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function isUserActivatableSkill(skill: SkillSummaryLike): boolean {
+  if (typeof skill.name !== 'string' || skill.name.length === 0) return false;
+  return (
+    skill.type === undefined ||
+    skill.type === 'prompt' ||
+    skill.type === 'inline' ||
+    skill.type === 'flow'
+  );
+}
+
+function extractSlashCommandText(input: string | PromptInputPart[]): string | undefined {
+  if (typeof input === 'string') {
+    const text = input.trim();
+    return parseSlashInput(text) === null ? undefined : text;
+  }
+
+  if (input.length !== 1) return undefined;
+  const [part] = input;
+  if (!part || part.type !== 'text') return undefined;
+  const text = part.text.trim();
+  return parseSlashInput(text) === null ? undefined : text;
+}
+
+async function executeSlashCommand(input: string): Promise<SlashCommandResult> {
+  const parsed = parseSlashInput(input);
+  if (parsed === null) return { handled: false };
+
+  const commands = await listSlashCommands();
+  const command = findSlashCommand(commands, parsed.name);
+  if (!command) return { handled: false };
+
+  if (command.source === 'skill') {
+    if (!activeSession) throw new Error('No active session');
+    const skillName = command.name.slice('skill:'.length);
+    await activeSession.activateSkill(skillName, parsed.args);
+    return { handled: true, startsTurn: true };
+  }
+
+  return executeBuiltinSlashCommand(command.name, parsed.args);
+}
+
+async function executeBuiltinSlashCommand(name: string, args: string): Promise<SlashCommandResult> {
+  switch (name) {
+    case 'help':
+      return notice(formatHelp(await listSlashCommands()));
+    case 'version':
+      return notice(`Kimi Code v${app.getVersion()}`);
+    case 'new':
+      return createNewSessionFromSlash();
+    case 'sessions':
+      return handleSessionsCommand(args);
+    case 'tasks':
+      return handleTasksCommand();
+    case 'mcp':
+      return handleMcpCommand();
+    case 'model':
+      return handleModelCommand(args);
+    case 'permission':
+      return handlePermissionCommand(args);
+    case 'settings':
+      return handleSettingsCommand();
+    case 'usage':
+      return handleUsageCommand();
+    case 'status':
+      return handleStatusCommand();
+    case 'feedback':
+      await shell.openExternal(FEEDBACK_ISSUE_URL);
+      return notice(`Opened feedback page:\n${FEEDBACK_ISSUE_URL}`);
+    case 'title':
+      return handleTitleCommand(args);
+    case 'yolo':
+      return handleYoloCommand(args);
+    case 'plan':
+      return handlePlanCommand(args);
+    case 'compact':
+      return handleCompactCommand(args);
+    case 'init':
+      return handleInitCommand();
+    case 'fork':
+      return handleForkCommand();
+    case 'logout':
+      return handleLogoutCommand();
+    case 'login':
+      return notice('Desktop login is handled from the model configuration dialog. Open settings and configure your API source there.');
+    case 'editor':
+      return notice('/editor configures the terminal Ctrl-G external editor. The desktop app does not use that terminal editor setting.');
+    case 'theme':
+      return notice('/theme is a terminal UI setting. The desktop app theme is not controlled by this command yet.');
+    case 'exit':
+      targetWindow?.close();
+      return notice('Closing Kimi Desktop.');
+    default:
+      return { handled: false };
+  }
+}
+
+function notice(message: string): SlashCommandResult {
+  return { handled: true, message };
+}
+
+async function createNewSessionFromSlash(): Promise<SlashCommandResult> {
+  const h = getHarness();
+  await h.ensureConfigFile();
+  const config = await h.getConfig();
+  const model = config.defaultModel;
+  if (!model) throw new Error('No model configured. Set default_model in config.toml.');
+
+  const session = await h.createSession({
+    workDir: selectedWorkDir,
+    model,
+    thinking: normalizeThinking(config.thinking?.effort ?? (config.defaultThinking === false ? 'off' : 'high')),
+    permission: normalizePermission(config.defaultPermissionMode),
+  });
+  attachSession(session);
+  return {
+    handled: true,
+    message: `Started a fresh session: ${session.id}`,
+    session: { id: session.id, workDir: session.workDir, messages: [] },
+    runtime: await getRuntimeSettings(),
+  };
+}
+
+async function handleSessionsCommand(args: string): Promise<SlashCommandResult> {
+  const h = getHarness();
+  const sessionId = args.trim();
+  if (sessionId.length > 0) {
+    const session = await h.resumeSession({ id: sessionId });
+    attachSession(session);
+    return {
+      handled: true,
+      message: `Resumed session: ${session.id}`,
+      session: {
+        id: session.id,
+        workDir: session.workDir,
+        title: session.summary?.title,
+        messages: replayMessages(session),
+      },
+      runtime: await getRuntimeSettings(),
+    };
+  }
+
+  const sessions = await h.listSessions({ workDir: selectedWorkDir });
+  if (sessions.length === 0) return notice('No sessions in the current workspace.');
+  const lines = sessions.slice(0, 12).map((session: any) => {
+    const title = session.title ?? session.lastPrompt ?? '(untitled)';
+    const marker = activeSession?.id === session.id ? '*' : '-';
+    return `${marker} ${session.id}  ${title}`;
+  });
+  return notice(`Sessions in ${selectedWorkDir}:\n${lines.join('\n')}`);
+}
+
+async function handleTasksCommand(): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const tasks = await activeSession.listBackgroundTasks({ activeOnly: false });
+  if (tasks.length === 0) return notice('No background tasks.');
+  const lines = tasks.slice(0, 20).map((task: any) => {
+    const description = typeof task.description === 'string' ? task.description : '';
+    return `- ${task.taskId ?? task.id ?? 'task'}  ${task.status ?? 'unknown'}  ${description}`;
+  });
+  return notice(`Background tasks:\n${lines.join('\n')}`);
+}
+
+async function handleMcpCommand(): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const servers = await activeSession.listMcpServers();
+  if (servers.length === 0) return notice('No MCP servers configured.');
+  const lines = servers.map((server: any) => {
+    const status = server.status ?? server.state ?? 'unknown';
+    const tools = Array.isArray(server.tools) ? ` (${server.tools.length} tools)` : '';
+    return `- ${server.name ?? 'server'}: ${status}${tools}`;
+  });
+  return notice(`MCP servers:\n${lines.join('\n')}`);
+}
+
+async function handleModelCommand(args: string): Promise<SlashCommandResult> {
+  const settings = await getRuntimeSettings();
+  const model = args.trim();
+  if (model.length === 0) {
+    const lines = settings.models.map((item) => `${item === settings.selectedModel ? '*' : '-'} ${item}`);
+    return notice(`Available models:\n${lines.join('\n') || '(none configured)'}`);
+  }
+  if (!settings.models.includes(model)) {
+    return { handled: true, error: `Unknown model alias: ${model}` };
+  }
+  await activeSession?.setModel(model);
+  await getHarness().setConfig({ defaultModel: model });
+  return {
+    handled: true,
+    message: `Switched to model: ${model}`,
+    runtime: await getRuntimeSettings(),
+  };
+}
+
+async function handlePermissionCommand(args: string): Promise<SlashCommandResult> {
+  const mode = args.trim();
+  if (mode.length === 0) {
+    const settings = await getRuntimeSettings();
+    return notice(`Permission mode: ${settings.permission}\nAvailable: manual, auto, yolo`);
+  }
+  if (mode !== 'manual' && mode !== 'auto' && mode !== 'yolo') {
+    return { handled: true, error: `Unknown permission mode: ${mode}` };
+  }
+  await activeSession?.setPermission(mode);
+  await getHarness().setConfig({ defaultPermissionMode: mode });
+  return {
+    handled: true,
+    message: `Permission mode: ${mode}`,
+    runtime: await getRuntimeSettings(),
+  };
+}
+
+async function handleSettingsCommand(): Promise<SlashCommandResult> {
+  const h = getHarness();
+  await h.ensureConfigFile();
+  const error = await shell.openPath(h.configPath);
+  if (error) return { handled: true, error };
+  return notice(`Opened config file:\n${h.configPath}`);
+}
+
+async function handleUsageCommand(): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  return notice(formatUsage(await activeSession.getUsage()));
+}
+
+async function handleStatusCommand(): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const status = await activeSession.getStatus();
+  return notice([
+    `Session: ${activeSession.id}`,
+    `Workdir: ${activeSession.workDir}`,
+    `Model: ${status.model ?? '(unknown)'}`,
+    `Thinking: ${status.thinkingLevel}`,
+    `Permission: ${status.permission}`,
+    `Plan mode: ${status.planMode ? 'on' : 'off'}`,
+    `Context: ${formatNumber(status.contextTokens)} / ${formatNumber(status.maxContextTokens)} (${Math.round(status.contextUsage * 100)}%)`,
+  ].join('\n'));
+}
+
+async function handleTitleCommand(args: string): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const title = args.trim();
+  if (title.length === 0) {
+    return notice(`Session title: ${activeSession.summary?.title ?? '(not set)'}\nSession id: ${activeSession.id}`);
+  }
+  const nextTitle = title.slice(0, 200);
+  await getHarness().renameSession({ id: activeSession.id, title: nextTitle });
+  return notice(`Session title set to: ${nextTitle}`);
+}
+
+async function handleYoloCommand(args: string): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const subcmd = args.trim().toLowerCase();
+  const current = await activeSession.getStatus();
+  let enabled: boolean;
+  if (subcmd === 'on') enabled = true;
+  else if (subcmd === 'off') enabled = false;
+  else if (subcmd.length === 0) enabled = current.permission !== 'yolo';
+  else return { handled: true, error: `Unknown yolo subcommand: ${subcmd}` };
+
+  const mode: PermissionMode = enabled ? 'yolo' : 'manual';
+  await activeSession.setPermission(mode);
+  await getHarness().setConfig({ defaultPermissionMode: mode });
+  return {
+    handled: true,
+    message: enabled
+      ? 'YOLO mode: ON\nAll actions will be approved automatically. Use with caution.'
+      : 'YOLO mode: OFF',
+    runtime: await getRuntimeSettings(),
+  };
+}
+
+async function handlePlanCommand(args: string): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const subcmd = args.trim().toLowerCase();
+  if (subcmd === 'clear') {
+    await activeSession.clearPlan();
+    return notice('Plan cleared.');
+  }
+
+  const current = await activeSession.getStatus();
+  let enabled: boolean;
+  if (subcmd.length === 0) enabled = !current.planMode;
+  else if (subcmd === 'on') enabled = true;
+  else if (subcmd === 'off') enabled = false;
+  else return { handled: true, error: `Unknown plan subcommand: ${subcmd}` };
+
+  await activeSession.setPlanMode(enabled);
+  return notice(`Plan mode: ${enabled ? 'ON' : 'OFF'}`);
+}
+
+async function handleCompactCommand(args: string): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  await activeSession.compact({ instruction: args.trim() || undefined });
+  return notice('Conversation context compacted.');
+}
+
+async function handleInitCommand(): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  await activeSession.init();
+  return { handled: true, startsTurn: true };
+}
+
+async function handleForkCommand(): Promise<SlashCommandResult> {
+  if (!activeSession) throw new Error('No active session');
+  const sourceTitle = activeSession.summary?.title?.trim() || activeSession.id;
+  const forked = await getHarness().forkSession({
+    id: activeSession.id,
+    title: `Fork: ${sourceTitle}`,
+  });
+  attachSession(forked);
+  return {
+    handled: true,
+    message: `Session forked: ${forked.id}`,
+    session: {
+      id: forked.id,
+      workDir: forked.workDir,
+      title: forked.summary?.title,
+      messages: replayMessages(forked),
+    },
+    runtime: await getRuntimeSettings(),
+  };
+}
+
+async function handleLogoutCommand(): Promise<SlashCommandResult> {
+  await getHarness().auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
+  return notice('Logged out.');
+}
+
+function formatHelp(commands: readonly SlashCommandInfo[]): string {
+  return commands
+    .map((command) => {
+      const aliases = command.aliases.length > 0 ? ` (${command.aliases.map((alias) => `/${alias}`).join(', ')})` : '';
+      return `/${command.name}${aliases}  ${command.description}`;
+    })
+    .join('\n');
+}
+
+function formatUsage(usage: Awaited<ReturnType<Session['getUsage']>>): string {
+  const lines = ['Usage:'];
+  if (usage.total) {
+    lines.push(`Total: ${formatTokenUsage(usage.total)}`);
+  }
+  if (usage.currentTurn) {
+    lines.push(`Current turn: ${formatTokenUsage(usage.currentTurn)}`);
+  }
+  if (usage.byModel) {
+    for (const [model, value] of Object.entries(usage.byModel) as Array<[string, Parameters<typeof formatTokenUsage>[0]]>) {
+      lines.push(`${model}: ${formatTokenUsage(value)}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatTokenUsage(usage: {
+  inputOther: number;
+  output: number;
+  inputCacheRead: number;
+  inputCacheCreation: number;
+}): string {
+  const input = usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation;
+  return `input ${formatNumber(input)}, output ${formatNumber(usage.output)}`;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
 }
 
 async function selectPreviewFile(): Promise<PreviewFileResult | null> {

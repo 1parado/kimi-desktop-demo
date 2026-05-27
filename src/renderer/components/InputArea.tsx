@@ -1,12 +1,14 @@
-import { useState, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useState, useRef, type KeyboardEvent } from 'react';
 import { useSettingsStore } from '../store/settings';
 import type { PromptInputPart, PermissionMode, ThinkingLevel } from '../../preload/index';
 import type { SendMessageInput } from '../hooks/useAgent';
+import type { SlashCommandInfo } from '../../shared/slash-commands';
 
 interface InputAreaProps {
   onSend: (input: SendMessageInput) => void;
   onCancel: () => void;
   isLoading: boolean;
+  sessionId?: string | null;
 }
 
 interface ComposerAttachment {
@@ -18,14 +20,6 @@ interface ComposerAttachment {
   content: string;
 }
 
-interface SlashCommand {
-  id: string;
-  command: string;
-  title: string;
-  description: string;
-  hint: string;
-}
-
 interface SlashCommandTrigger {
   start: number;
   end: number;
@@ -35,54 +29,10 @@ interface SlashCommandTrigger {
 
 const MAX_TEXT_ATTACHMENT_BYTES = 1024 * 1024;
 
-const SLASH_COMMANDS: SlashCommand[] = [
-  {
-    id: 'plan',
-    command: '/plan',
-    title: '制定计划',
-    description: '先拆解任务，再执行实现。',
-    hint: '规划',
-  },
-  {
-    id: 'review',
-    command: '/review',
-    title: '代码审查',
-    description: '检查风险、回归和测试缺口。',
-    hint: '审查',
-  },
-  {
-    id: 'fix',
-    command: '/fix',
-    title: '修复问题',
-    description: '定位 bug 并提交最小改动。',
-    hint: '修复',
-  },
-  {
-    id: 'test',
-    command: '/test',
-    title: '运行验证',
-    description: '执行相关测试或类型检查。',
-    hint: '验证',
-  },
-  {
-    id: 'explain',
-    command: '/explain',
-    title: '解释代码',
-    description: '说明当前实现和关键路径。',
-    hint: '说明',
-  },
-  {
-    id: 'commit',
-    command: '/commit',
-    title: '准备提交',
-    description: '整理变更并生成提交说明。',
-    hint: 'Git',
-  },
-];
-
-export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
+export function InputArea({ onSend, onCancel, isLoading, sessionId }: InputAreaProps) {
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
   const [caretPosition, setCaretPosition] = useState(0);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const [dismissedCommandKey, setDismissedCommandKey] = useState<string | null>(null);
@@ -100,9 +50,23 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
     selectWorkDir,
   } = useSettingsStore();
 
+  useEffect(() => {
+    let disposed = false;
+    window.kimiAPI?.listSlashCommands()
+      .then((commands) => {
+        if (!disposed) setSlashCommands(commands);
+      })
+      .catch(() => {
+        if (!disposed) setSlashCommands([]);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [isLoading, sessionId]);
+
   const slashTrigger = getSlashCommandTrigger(value, caretPosition);
   const matchingCommands = slashTrigger
-    ? SLASH_COMMANDS.filter((item) => matchesSlashCommand(item, slashTrigger.query))
+    ? slashCommands.filter((item) => matchesSlashCommand(item, slashTrigger.query))
     : [];
   const isCommandPaletteOpen = Boolean(
     slashTrigger &&
@@ -128,7 +92,7 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
 
       if ((e.key === 'Enter' || e.key === 'Tab') && selectedCommand) {
         e.preventDefault();
-        insertSlashCommand(selectedCommand.command);
+        insertSlashCommand(`/${selectedCommand.name}`);
         return;
       }
 
@@ -238,22 +202,22 @@ export function InputArea({ onSend, onCancel, isLoading }: InputAreaProps) {
             <div className="slash-command-list">
               {matchingCommands.map((command, index) => (
                 <button
-                  key={command.id}
+                  key={`${command.source}:${command.name}`}
                   type="button"
                   role="option"
                   aria-selected={index === activeCommandIndex}
                   className={`slash-command-item ${index === activeCommandIndex ? 'active' : ''}`}
                   onMouseDown={(event) => {
                     event.preventDefault();
-                    insertSlashCommand(command.command);
+                    insertSlashCommand(`/${command.name}`);
                   }}
                 >
-                  <span className="slash-command-name">{command.command}</span>
+                  <span className="slash-command-name">/{command.name}</span>
                   <span className="slash-command-copy">
-                    <span className="slash-command-label">{command.title}</span>
-                    <span className="slash-command-description">{command.description}</span>
+                    <span className="slash-command-label">{command.description}</span>
+                    <span className="slash-command-description">{formatSlashCommandMeta(command)}</span>
                   </span>
-                  <span className="slash-command-hint">{command.hint}</span>
+                  <span className="slash-command-hint">{command.source === 'skill' ? 'Skill' : '命令'}</span>
                 </button>
               ))}
             </div>
@@ -451,15 +415,26 @@ function getSlashCommandTrigger(value: string, caretPosition: number): SlashComm
   };
 }
 
-function matchesSlashCommand(command: SlashCommand, rawQuery: string): boolean {
+function matchesSlashCommand(command: SlashCommandInfo, rawQuery: string): boolean {
   const query = rawQuery.toLowerCase();
   if (!query) return true;
   return (
-    command.command.slice(1).startsWith(query) ||
-    command.title.toLowerCase().includes(query) ||
+    command.name.toLowerCase().startsWith(query) ||
+    command.aliases.some((alias) => alias.toLowerCase().startsWith(query)) ||
     command.description.toLowerCase().includes(query) ||
-    command.hint.toLowerCase().includes(query)
+    command.source.toLowerCase().includes(query)
   );
+}
+
+function formatSlashCommandMeta(command: SlashCommandInfo): string {
+  const parts: string[] = [];
+  if (command.aliases.length > 0) {
+    parts.push(`别名 ${command.aliases.map((alias) => `/${alias}`).join(', ')}`);
+  }
+  if (command.availability === 'idle-only') {
+    parts.push('空闲时可用');
+  }
+  return parts.join(' · ') || (command.source === 'skill' ? 'Agent skill' : 'Built-in command');
 }
 
 function readAsDataUrl(file: File): Promise<string> {

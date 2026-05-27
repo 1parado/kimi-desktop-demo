@@ -10,7 +10,7 @@ interface ChatViewProps {
 }
 
 export function ChatView({ previewOpen, onTogglePreview }: ChatViewProps) {
-  const { sendMessage, cancel, isLoading } = useAgent();
+  const { sessionId, sendMessage, cancel, isLoading } = useAgent();
   const handleSend = (input: SendMessageInput) => void sendMessage(input);
 
   return (
@@ -37,7 +37,7 @@ export function ChatView({ previewOpen, onTogglePreview }: ChatViewProps) {
       <div className="flex min-h-0 flex-1">
         <section className="conversation-plane min-w-0 flex-1">
           <MessageList isLoading={isLoading} />
-          <InputArea onSend={handleSend} onCancel={cancel} isLoading={isLoading} />
+          <InputArea onSend={handleSend} onCancel={cancel} isLoading={isLoading} sessionId={sessionId} />
         </section>
       </div>
       <ApprovalDialog />

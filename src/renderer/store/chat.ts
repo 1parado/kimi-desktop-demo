@@ -33,6 +33,7 @@ export interface ChatState {
   startToolMessage: (toolCallId: string, toolName: string, content: string) => void;
   updateToolMessage: (toolCallId: string, content: string) => void;
   finishToolMessage: (toolCallId: string, status: Exclude<ToolStatus, 'running'>, content?: string) => void;
+  addToolNotice: (toolName: string, content: string) => void;
   addErrorMessage: (content: string) => void;
   setPendingApproval: (approval: ApprovalPrompt | null) => void;
   setSessionId: (id: string) => void;
@@ -226,6 +227,20 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messages,
         sessionMessages: cacheMessages(state, messages),
+      };
+    });
+  },
+
+  addToolNotice(toolName, content) {
+    set((state) => {
+      const messages = [
+        ...state.messages,
+        { id: nextId(), role: 'tool', toolName, toolStatus: 'completed', content } satisfies Message,
+      ];
+      return {
+        messages,
+        sessionMessages: cacheMessages(state, messages),
+        isLoading: false,
       };
     });
   },

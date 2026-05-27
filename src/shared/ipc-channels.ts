@@ -4,6 +4,7 @@ export const IPC = {
   SESSION_PROMPT: 'session:prompt',
   SESSION_CANCEL: 'session:cancel',
   SESSION_LIST: 'session:list',
+  SESSION_SLASH_COMMANDS: 'session:slash-commands',
   SESSION_SET_MODEL: 'session:set-model',
   SESSION_SET_THINKING: 'session:set-thinking',
   SESSION_SET_PERMISSION: 'session:set-permission',
